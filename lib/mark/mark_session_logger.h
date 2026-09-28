@@ -1,0 +1,100 @@
+/*
+ *
+ * Copyright 2021-2025 Software Radio Systems Limited
+ *
+ * This file is part of srsRAN.
+ *
+ * srsRAN is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of
+ * the License, or (at your option) any later version.
+ *
+ * srsRAN is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * A copy of the GNU Affero General Public License can be found in
+ * the LICENSE file in the top-level directory of this distribution
+ * and at http://www.gnu.org/licenses/.
+ *
+ */
+
+#pragma once
+
+#include "srsran/ran/cu_types.h"
+#include "srsran/ran/rb_id.h"
+#include "srsran/support/format/prefixed_logger.h"
+#include "fmt/format.h"
+
+namespace srsran {
+
+class mark_session_trx_log_prefix
+{
+public:
+  mark_session_trx_log_prefix(uint32_t ue_index, pdu_session_id_t psi, const char* dir)
+  {
+    fmt::memory_buffer buffer;
+    fmt::format_to(std::back_inserter(buffer), "ue={} {} {}: ", ue_index, psi, dir);
+    prefix = srsran::to_c_str(buffer);
+  }
+  const char* to_c_str() const { return prefix.c_str(); }
+
+private:
+  std::string prefix;
+};
+
+using mark_session_trx_logger = prefixed_logger<mark_session_trx_log_prefix>;
+
+class mark_session_log_prefix
+{
+public:
+  mark_session_log_prefix(uint32_t ue_index, pdu_session_id_t psi)
+  {
+    fmt::memory_buffer buffer;
+    fmt::format_to(std::back_inserter(buffer), "ue={} {}: ", ue_index, psi);
+    prefix = srsran::to_c_str(buffer);
+  }
+  const char* to_c_str() const { return prefix.c_str(); }
+
+private:
+  std::string prefix;
+};
+
+using mark_session_logger = prefixed_logger<mark_session_log_prefix>;
+
+} // namespace srsran
+
+namespace fmt {
+
+template <>
+struct formatter<srsran::mark_session_trx_log_prefix> {
+  template <typename ParseContext>
+  auto parse(ParseContext& ctx)
+  {
+    return ctx.begin();
+  }
+
+  template <typename FormatContext>
+  auto format(srsran::mark_session_trx_log_prefix o, FormatContext& ctx) const
+  {
+    return format_to(ctx.out(), "{}", o.to_c_str());
+  }
+};
+
+template <>
+struct formatter<srsran::mark_session_log_prefix> {
+  template <typename ParseContext>
+  auto parse(ParseContext& ctx)
+  {
+    return ctx.begin();
+  }
+
+  template <typename FormatContext>
+  auto format(srsran::mark_session_log_prefix o, FormatContext& ctx) const
+  {
+    return format_to(ctx.out(), "{}", o.to_c_str());
+  }
+};
+
+} // namespace fmt
