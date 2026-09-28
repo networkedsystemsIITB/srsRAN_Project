@@ -40,7 +40,7 @@ nru_dl_data_delivery_status make_tx_status(uint32_t highest_tx_sn)
 TEST(mark_queue_model_test, basic_arrival_and_feedback)
 {
   mark_config cfg;
-  cfg.l4s_target_delay_us = 10000;
+  cfg.l4s.target_delay_us = 10000;
   mark_queue_model model(12, cfg);
 
   std::chrono::microseconds t0{100000};
@@ -74,7 +74,7 @@ TEST(mark_queue_model_test, basic_arrival_and_feedback)
 TEST(mark_queue_model_test, zero_error_handling)
 {
   mark_config cfg;
-  cfg.l4s_target_delay_us = 10000;
+  cfg.l4s.target_delay_us = 10000;
   mark_queue_model model(12, cfg);
 
   std::chrono::microseconds t{100000};
@@ -158,15 +158,15 @@ TEST(mark_queue_model_test, golden_l4s_probability_comparison)
 {
   // Test linear region: required_rate between pred - err and pred + err
   mark_config cfg_normal;
-  cfg_normal.l4s_target_delay_us        = 10000;
-  cfg_normal.legacy_l4s_prob_truncation = false;
-  cfg_normal.pred_window_pkts           = 4;
+  cfg_normal.l4s.target_delay_us        = 10000;
+  cfg_normal.l4s.legacy_prob_truncation = false;
+  cfg_normal.estimator.window_pkts      = 4;
   mark_queue_model model_normal(12, cfg_normal);
 
   mark_config cfg_legacy;
-  cfg_legacy.l4s_target_delay_us        = 10000;
-  cfg_legacy.legacy_l4s_prob_truncation = true;
-  cfg_legacy.pred_window_pkts           = 4;
+  cfg_legacy.l4s.target_delay_us        = 10000;
+  cfg_legacy.l4s.legacy_prob_truncation = true;
+  cfg_legacy.estimator.window_pkts      = 4;
   mark_queue_model model_legacy(12, cfg_legacy);
 
   std::chrono::microseconds t{100000};
@@ -207,9 +207,9 @@ TEST(mark_queue_model_test, golden_l4s_probability_comparison)
 TEST(mark_queue_model_test, classic_probability)
 {
   mark_config cfg;
-  cfg.classic_max_queue_bytes = 20000;
-  cfg.classic_mss_bytes       = 1460;
-  cfg.classic_beta            = 1.75;
+  cfg.classic.max_queue_bytes = 20000;
+  cfg.classic.mss_bytes       = 1460;
+  cfg.classic.beta            = 1.75;
   mark_queue_model model(12, cfg);
 
   std::chrono::microseconds t{100000};
@@ -222,7 +222,7 @@ TEST(mark_queue_model_test, classic_probability)
   t += std::chrono::microseconds(5000);
   model.process_delivery_status(make_tx_status(4), t, 1);
 
-  // Standing queue is 25000 bytes > classic_max_queue_bytes (20000).
+  // Standing queue is 25000 bytes > classic.max_queue_bytes (20000).
   EXPECT_TRUE(model.have_classic(t));
   EXPECT_GT(model.get_p_classic(t), 0.0);
 
@@ -261,9 +261,9 @@ TEST(mark_queue_model_test, legacy_truncation_is_bit_exact_with_l4span)
   // l4span/main: (uint32_t)(3) / 2 = 1 (integer division), 1 / 2 = 0.5. Intended formula: 3 / (2 * 2) = 0.75.
   auto run = [](bool legacy) {
     mark_config cfg;
-    cfg.l4s_target_delay_us        = 10000;
-    cfg.pred_window_pkts           = 4;
-    cfg.legacy_l4s_prob_truncation = legacy;
+    cfg.l4s.target_delay_us        = 10000;
+    cfg.estimator.window_pkts      = 4;
+    cfg.l4s.legacy_prob_truncation = legacy;
     mark_queue_model model(12, cfg);
 
     std::chrono::microseconds t{100000};

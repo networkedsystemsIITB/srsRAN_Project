@@ -204,6 +204,36 @@ protected:
     mark_impl->add_mapping(qos_flow_id_t::min, drb_id_t::drb1);
   }
 
+  /// Recreates the entity with a different configuration.
+  void recreate(const mark_config& new_cfg)
+  {
+    cfg       = new_cfg;
+    mark      = create_mark(msg);
+    mark_impl = static_cast<mark_entity_impl*>(mark.get());
+    mark_impl->add_drb(drb_id_t::drb1, 12);
+    mark_impl->add_mapping(qos_flow_id_t::min, drb_id_t::drb1);
+  }
+
+  /// Sends one DL TCP data packet of the server->UE flow used by the ACK tests.
+  void send_dl_tcp(ip::ecn_codepoint ecn, uint32_t seq)
+  {
+    auto pkt = make_ipv4_tcp(ecn, server_ip, ue_ip, 8080, 5001, false, true, seq, 1, 0, 0, 1336);
+    mark->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(pkt).value(), qos_flow_id_t::min);
+  }
+
+  /// Sends one UL ACK with an AccECN option of the UE->server flow and returns what MARK forwarded.
+  std::pair<std::vector<uint8_t>, byte_buffer> send_ul_ack(ip::ecn_codepoint ecn)
+  {
+    auto ack = make_ipv4_tcp(ecn, ue_ip, server_ip, 5001, 8080, false, true, 1, 3672, ip::TCP_OPT_ACCECN0, 11, 0);
+    mark->get_mark_rx_pdu_handler().handle_pdu(byte_buffer::create(ack).value(), qos_flow_id_t::min);
+    byte_buffer out = std::move(rx_notifier.received_sdus.front().sdu);
+    rx_notifier.received_sdus.pop();
+    return {ack, std::move(out)};
+  }
+
+  static constexpr uint32_t server_ip = 0x0a000001;
+  static constexpr uint32_t ue_ip     = 0x0a000002;
+
   mark_config                  cfg;
   std::atomic<uint32_t>        nof_ues{1};
   test_mark_rx_sdu_notifier    rx_notifier;
@@ -269,10 +299,8 @@ TEST_F(mark_entity_test, dl_udp_marking_forced_p1)
   EXPECT_EQ(parsed.ecn, ip::ecn_codepoint::ce);
   EXPECT_EQ(parsed.ip_check, ip::compute_ip_checksum(item.pdu, 0, parsed.ihl_bytes));
 
-  EXPECT_EQ(mark_impl->get_flow_table().size(), 1u);
-  auto flow = mark_impl->get_flow_table().get_flow(parsed.tuple);
-  ASSERT_TRUE(flow.has_value());
-  EXPECT_EQ(flow->pkts_with_ce, cfg.ce_pkt_offset + 1);
+  // UDP has no ACKs to rewrite, so it is not tracked in the flow table.
+  EXPECT_EQ(mark_impl->get_flow_table().size(), 0u);
 }
 
 TEST_F(mark_entity_test, dl_udp_marking_forced_p0)
@@ -292,10 +320,7 @@ TEST_F(mark_entity_test, dl_udp_marking_forced_p0)
   EXPECT_EQ(parsed.ecn, ip::ecn_codepoint::ect_1);
   EXPECT_EQ(parsed.ip_check, ip::compute_ip_checksum(item.pdu, 0, parsed.ihl_bytes));
 
-  auto flow = mark_impl->get_flow_table().get_flow(parsed.tuple);
-  ASSERT_TRUE(flow.has_value());
-  EXPECT_EQ(flow->pkts_with_ecn1, 1u);
-  EXPECT_EQ(flow->pkts_with_ce, cfg.ce_pkt_offset);
+  EXPECT_EQ(mark_impl->get_flow_table().size(), 0u);
 }
 
 TEST_F(mark_entity_test, dl_tcp_virtual_ce)
@@ -320,16 +345,14 @@ TEST_F(mark_entity_test, dl_tcp_virtual_ce)
   // But flow table reflects virtual CE
   auto flow = mark_impl->get_flow_table().get_flow(parsed.tuple);
   ASSERT_TRUE(flow.has_value());
-  EXPECT_EQ(flow->pkts_with_ce, cfg.ce_pkt_offset + 1);
+  EXPECT_EQ(flow->pkts_with_ce, cfg.ack_rewrite.ce_pkt_offset + 1);
   EXPECT_EQ(flow->bytes_with_ce, 100u);
 }
 
 TEST_F(mark_entity_test, ul_accecn_rewrite)
 {
-  uint32_t server_ip = 0x0a000001;
-  uint32_t ue_ip     = 0x0a000002;
-  uint16_t s_port    = 8080;
-  uint16_t c_port    = 5001;
+  uint16_t s_port = 8080;
+  uint16_t c_port = 5001;
 
   // 1. Send DL TCP packets to establish flow with both ecn1 and ce packets
   mark_impl->set_forced_l4s_prob(1.0);
@@ -437,9 +460,6 @@ TEST_F(mark_entity_test, dl_classic_tcp_not_marked_when_p0)
 
 TEST_F(mark_entity_test, ul_classic_ack_is_not_rewritten)
 {
-  uint32_t server_ip = 0x0a000001;
-  uint32_t ue_ip     = 0x0a000002;
-
   // Classic flow marked on the DL. Its ACKs must be left untouched, so the sender is not signalled twice.
   mark_impl->set_forced_classic_prob(1.0);
   for (uint32_t seq : {1000U, 2336U}) {
@@ -456,38 +476,84 @@ TEST_F(mark_entity_test, ul_classic_ack_is_not_rewritten)
   EXPECT_EQ(rx_notifier.received_sdus.front().sdu, ul_ack);
 }
 
-TEST_F(mark_entity_test, classic_tcp_uses_ack_rewrite_when_dl_marking_disabled)
+TEST_F(mark_entity_test, classic_tcp_ack_rewrite)
 {
-  // With dl_classic_tcp_mark = false, classic TCP behaves as in the original L4Span: the DL packet is left unmarked,
-  // a virtual CE is counted, and it is reported through the UL AccECN rewrite.
-  mark_config legacy_cfg         = cfg;
-  legacy_cfg.dl_classic_tcp_mark = false;
-  mark_entity_creation_message legacy_msg{0, pdu_session_id_t::min, &rx_notifier, &tx_notifier, legacy_cfg, nof_ues};
-  std::unique_ptr<mark_entity> legacy = create_mark(legacy_msg);
-  auto*                        impl   = static_cast<mark_entity_impl*>(legacy.get());
-  impl->add_drb(drb_id_t::drb1, 12);
-  impl->add_mapping(qos_flow_id_t::min, drb_id_t::drb1);
-  impl->set_forced_classic_prob(1.0);
+  // classic.tcp = ack_rewrite is the original L4Span behaviour: the DL packet is left unmarked, a virtual CE is
+  // counted, and it is reported through the UL AccECN rewrite.
+  mark_config c = cfg;
+  c.classic.tcp = mark_signal::ack_rewrite;
+  recreate(c);
 
-  uint32_t server_ip = 0x0a000001;
-  uint32_t ue_ip     = 0x0a000002;
-  auto dl_pkt = make_ipv4_tcp(ip::ecn_codepoint::ect_0, server_ip, ue_ip, 8080, 5001, false, true, 1000, 1, 0, 0, 1336);
-  legacy->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(dl_pkt).value(), qos_flow_id_t::min);
-  impl->set_forced_classic_prob(0.0);
-  auto dl_pkt2 =
-      make_ipv4_tcp(ip::ecn_codepoint::ect_0, server_ip, ue_ip, 8080, 5001, false, true, 2336, 1, 0, 0, 1336);
-  legacy->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(dl_pkt2).value(), qos_flow_id_t::min);
+  mark_impl->set_forced_classic_prob(1.0);
+  send_dl_tcp(ip::ecn_codepoint::ect_0, 1000);
+  mark_impl->set_forced_classic_prob(0.0);
+  send_dl_tcp(ip::ecn_codepoint::ect_0, 2336);
 
   ASSERT_EQ(tx_notifier.received_pdus.size(), 2u);
-  EXPECT_EQ(tx_notifier.received_pdus.front().pdu, dl_pkt);
-  auto flow = impl->get_flow_table().get_flow(ip::parse_packet(byte_buffer::create(dl_pkt).value()).tuple);
-  ASSERT_TRUE(flow.has_value());
-  EXPECT_EQ(flow->pkts_with_ce, cfg.ce_pkt_offset + 1);
+  EXPECT_EQ(ip::parse_packet(tx_notifier.received_pdus.front().pdu).ecn, ip::ecn_codepoint::ect_0);
 
-  auto ul_ack = make_ipv4_tcp(
-      ip::ecn_codepoint::ect_0, ue_ip, server_ip, 5001, 8080, false, true, 1, 3672, ip::TCP_OPT_ACCECN0, 11, 0);
-  legacy->get_mark_rx_pdu_handler().handle_pdu(byte_buffer::create(ul_ack).value(), qos_flow_id_t::min);
+  auto [ack, out] = send_ul_ack(ip::ecn_codepoint::ect_0);
+  EXPECT_NE(out, ack);
+}
 
-  ASSERT_EQ(rx_notifier.received_sdus.size(), 1u);
-  EXPECT_NE(rx_notifier.received_sdus.front().sdu, ul_ack);
+TEST_F(mark_entity_test, not_ect_ack_of_ack_rewrite_flow_is_rewritten)
+{
+  // The flow's DL class decides whether its ACKs are rewritten, not the ACK's own ECN codepoint.
+  mark_impl->set_forced_l4s_prob(1.0);
+  send_dl_tcp(ip::ecn_codepoint::ect_1, 1000);
+  mark_impl->set_forced_l4s_prob(0.0);
+  send_dl_tcp(ip::ecn_codepoint::ect_1, 2336);
+
+  auto [ack, out] = send_ul_ack(ip::ecn_codepoint::not_ect);
+  EXPECT_NE(out, ack);
+
+  auto     parsed    = ip::parse_packet(out);
+  uint16_t csum      = ip::compute_tcp_checksum(out, 0, parsed.ihl_bytes, out.length() - parsed.ihl_bytes);
+  uint16_t wire_csum = (static_cast<uint16_t>(out[parsed.ihl_bytes + 16]) << 8) | out[parsed.ihl_bytes + 17];
+  EXPECT_EQ(wire_csum, csum);
+}
+
+TEST_F(mark_entity_test, l4s_tcp_dl_ce)
+{
+  mark_config c = cfg;
+  c.l4s.tcp     = mark_signal::dl_ce;
+  recreate(c);
+
+  mark_impl->set_forced_l4s_prob(1.0);
+  send_dl_tcp(ip::ecn_codepoint::ect_1, 1000);
+  send_dl_tcp(ip::ecn_codepoint::ect_1, 2336);
+
+  ASSERT_EQ(tx_notifier.received_pdus.size(), 2u);
+  auto parsed = ip::parse_packet(tx_notifier.received_pdus.front().pdu);
+  EXPECT_EQ(parsed.ecn, ip::ecn_codepoint::ce);
+  EXPECT_EQ(parsed.ip_check, ip::compute_ip_checksum(tx_notifier.received_pdus.front().pdu, 0, parsed.ihl_bytes));
+
+  // Its ACKs are left untouched.
+  auto [ack, out] = send_ul_ack(ip::ecn_codepoint::ect_1);
+  EXPECT_EQ(out, ack);
+}
+
+TEST_F(mark_entity_test, none_signalling_leaves_packets_untouched)
+{
+  mark_config c = cfg;
+  c.l4s.tcp     = mark_signal::none;
+  c.classic.udp = mark_signal::none;
+  recreate(c);
+
+  mark_impl->set_forced_l4s_prob(1.0);
+  mark_impl->set_forced_classic_prob(1.0);
+
+  auto udp = make_ipv4_udp(ip::ecn_codepoint::ect_0, 64);
+  mark->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(udp).value(), qos_flow_id_t::min);
+  ASSERT_EQ(tx_notifier.received_pdus.size(), 1u);
+  EXPECT_EQ(tx_notifier.received_pdus.front().pdu, udp);
+
+  send_dl_tcp(ip::ecn_codepoint::ect_1, 1000);
+  send_dl_tcp(ip::ecn_codepoint::ect_1, 2336);
+  ASSERT_EQ(tx_notifier.received_pdus.size(), 3u);
+  tx_notifier.received_pdus.pop();
+  EXPECT_EQ(ip::parse_packet(tx_notifier.received_pdus.front().pdu).ecn, ip::ecn_codepoint::ect_1);
+
+  auto [ack, out] = send_ul_ack(ip::ecn_codepoint::ect_1);
+  EXPECT_EQ(out, ack);
 }

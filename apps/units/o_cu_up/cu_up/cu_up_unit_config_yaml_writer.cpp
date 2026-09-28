@@ -105,21 +105,30 @@ static void fill_cu_up_log_section(YAML::Node node, const cu_up_unit_logger_conf
 
 static void fill_cu_up_l4span_section(YAML::Node node, const mark_config& config)
 {
-  node["enabled"]                    = config.enabled;
-  node["l4s_target_delay_us"]        = config.l4s_target_delay_us;
-  node["classic_max_queue_bytes"]    = config.classic_max_queue_bytes;
-  node["pred_window_pkts"]           = config.pred_window_pkts;
-  node["min_rate_interval_us"]       = config.min_rate_interval_us;
-  node["flow_idle_timeout_ms"]       = config.flow_idle_timeout_ms;
-  node["dl_udp_mark"]                = config.dl_udp_mark;
-  node["dl_classic_tcp_mark"]        = config.dl_classic_tcp_mark;
-  node["ul_ack_rewrite"]             = config.ul_ack_rewrite;
-  node["ack_mss_bytes"]              = config.ack_mss_bytes;
-  node["l4s_ce_portion_scale"]       = config.l4s_ce_portion_scale;
-  node["ce_pkt_offset"]              = config.ce_pkt_offset;
-  node["classic_mss_bytes"]          = config.classic_mss_bytes;
-  node["classic_beta"]               = config.classic_beta;
-  node["legacy_l4s_prob_truncation"] = config.legacy_l4s_prob_truncation;
+  node["enabled"]              = config.enabled;
+  node["flow_idle_timeout_ms"] = config.flow_idle_timeout_ms;
+
+  YAML::Node estimator_node              = node["estimator"];
+  estimator_node["window_pkts"]          = config.estimator.window_pkts;
+  estimator_node["min_rate_interval_us"] = config.estimator.min_rate_interval_us;
+
+  YAML::Node l4s_node                = node["l4s"];
+  l4s_node["target_delay_us"]        = config.l4s.target_delay_us;
+  l4s_node["legacy_prob_truncation"] = config.l4s.legacy_prob_truncation;
+  l4s_node["tcp"]                    = to_string(config.l4s.tcp);
+  l4s_node["udp"]                    = to_string(config.l4s.udp);
+
+  YAML::Node classic_node         = node["classic"];
+  classic_node["max_queue_bytes"] = config.classic.max_queue_bytes;
+  classic_node["mss_bytes"]       = config.classic.mss_bytes;
+  classic_node["beta"]            = config.classic.beta;
+  classic_node["tcp"]             = to_string(config.classic.tcp);
+  classic_node["udp"]             = to_string(config.classic.udp);
+
+  YAML::Node ack_rewrite_node       = node["ack_rewrite"];
+  ack_rewrite_node["mss_bytes"]     = config.ack_rewrite.mss_bytes;
+  ack_rewrite_node["ce_pkt_offset"] = config.ack_rewrite.ce_pkt_offset;
+  ack_rewrite_node["l4s_ce_scale"]  = config.ack_rewrite.l4s_ce_scale;
 }
 
 static void fill_cu_up_section(YAML::Node node, const cu_up_unit_config& config)

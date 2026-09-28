@@ -124,7 +124,7 @@ void mark_queue_model::advance_sn(uint32_t target_sn, std::chrono::microseconds 
   }
 
   double measured_rate = 0.0;
-  if (elapsed_time >= static_cast<double>(cfg.min_rate_interval_us)) {
+  if (elapsed_time >= static_cast<double>(cfg.estimator.min_rate_interval_us)) {
     measured_rate = (elapsed_time > 0.0) ? (total_bytes / elapsed_time) : 0.0;
   } else if (last_dequeue_rate > 0.0) {
     measured_rate = last_dequeue_rate;
@@ -148,7 +148,7 @@ void mark_queue_model::advance_sn(uint32_t target_sn, std::chrono::microseconds 
 void mark_queue_model::make_mark_decision(uint32_t nof_ue)
 {
   // 1. Moving average and standard deviation of dequeue rate over last K transmitted packets
-  size_t K = std::min(static_cast<size_t>(cfg.pred_window_pkts), nof_transmitted);
+  size_t K = std::min(static_cast<size_t>(cfg.estimator.window_pkts), nof_transmitted);
   if (K == 0) {
     pred_rate  = 0.0;
     pred_error = 0.0;
@@ -179,7 +179,7 @@ void mark_queue_model::make_mark_decision(uint32_t nof_ue)
   est_qdelay_us = (pred_rate > 0.0) ? (standing_q_bytes / pred_rate) : 0.0;
 
   // 3. L4S marking probability
-  double l4s_target    = (cfg.l4s_target_delay_us > 0) ? static_cast<double>(cfg.l4s_target_delay_us) : 10000.0;
+  double l4s_target    = (cfg.l4s.target_delay_us > 0) ? static_cast<double>(cfg.l4s.target_delay_us) : 10000.0;
   double required_rate = standing_q_bytes / l4s_target;
   if (required_rate > pred_rate + pred_error) {
     raw_p_l4s = 1.0;
@@ -187,7 +187,7 @@ void mark_queue_model::make_mark_decision(uint32_t nof_ue)
     raw_p_l4s = 0.0;
   } else if (pred_error <= 1e-9) {
     raw_p_l4s = (required_rate >= pred_rate) ? 1.0 : 0.0;
-  } else if (cfg.legacy_l4s_prob_truncation) {
+  } else if (cfg.l4s.legacy_prob_truncation) {
     // Reproduces l4span/main exactly: the difference is cast to an unsigned integer and integer-divided by 2 before
     // the division by the prediction error.
     uint32_t num = static_cast<uint32_t>(required_rate - pred_rate + pred_error) / 2U;
@@ -197,10 +197,10 @@ void mark_queue_model::make_mark_decision(uint32_t nof_ue)
   }
 
   // 4. Classic marking probability
-  uint32_t classic_thres = cfg.classic_max_queue_bytes / std::max(1u, nof_ue);
+  uint32_t classic_thres = cfg.classic.max_queue_bytes / std::max(1u, nof_ue);
   if (standing_q_bytes > static_cast<double>(classic_thres) && pred_rate > 0.0 && est_qdelay_us > 0.0) {
     double term =
-        (static_cast<double>(cfg.classic_mss_bytes) * 8.0 * cfg.classic_beta / 2.0) / pred_rate / est_qdelay_us;
+        (static_cast<double>(cfg.classic.mss_bytes) * 8.0 * cfg.classic.beta / 2.0) / pred_rate / est_qdelay_us;
     raw_p_classic = std::clamp(term * term, 0.0, 1.0);
   } else {
     raw_p_classic = 0.0;

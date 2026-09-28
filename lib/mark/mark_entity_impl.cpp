@@ -146,29 +146,34 @@ void mark_entity_impl::handle_sdu(byte_buffer sdu, qos_flow_id_t qos_flow_id)
     do_mark = (dist(prng) < p);
   }
 
+  // Signalling configured for the packet's class and transport. CE and Not-ECT packets are never marked.
+  mark_signal signal = mark_signal::none;
+  if (pkt.ecn == ip::ecn_codepoint::ect_1) {
+    signal = pkt.is_tcp ? cfg.l4s.tcp : cfg.l4s.udp;
+  } else if (pkt.ecn == ip::ecn_codepoint::ect_0) {
+    signal = pkt.is_tcp ? cfg.classic.tcp : cfg.classic.udp;
+  }
+
   if (pkt.is_udp) {
-    bool should_mark = do_mark || (pkt.ecn == ip::ecn_codepoint::ce);
-    if (cfg.dl_udp_mark && should_mark && pkt.ecn != ip::ecn_codepoint::ce) {
+    if (signal == mark_signal::dl_ce && do_mark) {
       ip::set_ip_ecn(sdu, 0, ip::ecn_codepoint::ce);
       logger.log_debug("CE-marked DL UDP packet. {} ecn={} p={:.3f}", drb_id, static_cast<unsigned>(pkt.ecn), p);
     }
-
-    flow_table.update_dl_flow(pkt.tuple, drb_id, now, pkt.ecn, should_mark, pkt.l4_payload_len, cfg.ce_pkt_offset);
-
   } else if (pkt.is_tcp) {
     if (pkt.tcp_syn) {
-      flow_table.map_flow(pkt.tuple, drb_id, now, cfg.ce_pkt_offset);
-    } else if (cfg.dl_classic_tcp_mark && pkt.ecn == ip::ecn_codepoint::ect_0) {
-      // Classic TCP: CE-mark the DL packet itself, so that any ECN-capable receiver (RFC 3168 or AccECN) echoes it.
+      flow_table.map_flow(pkt.tuple, drb_id, now, cfg.ack_rewrite.ce_pkt_offset);
+    } else if (signal == mark_signal::dl_ce) {
+      // CE-mark the DL packet itself, so that any ECN-capable receiver (RFC 3168 or AccECN) echoes it.
       if (do_mark) {
         ip::set_ip_ecn(sdu, 0, ip::ecn_codepoint::ce);
         logger.log_debug("CE-marked DL TCP packet. {} ecn={} p={:.3f}", drb_id, static_cast<unsigned>(pkt.ecn), p);
       }
     } else {
-      // L4S TCP (and classic TCP if DL marking is disabled): leave the DL packet unmarked and count a virtual CE,
-      // reported through the UL AccECN rewrite.
-      bool count_as_ce = do_mark || (pkt.ecn == ip::ecn_codepoint::ce);
-      flow_table.update_dl_flow(pkt.tuple, drb_id, now, pkt.ecn, count_as_ce, pkt.l4_payload_len, cfg.ce_pkt_offset);
+      // Leave the DL packet unmarked. With ack_rewrite, count a virtual CE that is reported through the UL AccECN
+      // rewrite. CE marks from upstream hops are always counted.
+      bool count_as_ce = (signal == mark_signal::ack_rewrite && do_mark) || pkt.ecn == ip::ecn_codepoint::ce;
+      flow_table.update_dl_flow(
+          pkt.tuple, drb_id, now, pkt.ecn, count_as_ce, pkt.l4_payload_len, cfg.ack_rewrite.ce_pkt_offset);
     }
   }
 
@@ -185,10 +190,10 @@ void mark_entity_impl::handle_pdu(byte_buffer pdu, qos_flow_id_t qfi)
     ip::five_tuple rev_tuple = ip::reverse_five_tuple(pkt.tuple);
     auto           entry     = flow_table.get_and_update_ack(rev_tuple, pkt.ack_seq, now);
 
-    if (entry.has_value() && cfg.ul_ack_rewrite) {
+    if (entry.has_value()) {
       const auto& f              = entry.value();
-      size_t      pkt_size       = (cfg.ack_mss_bytes > 0) ? cfg.ack_mss_bytes : 1336;
-      size_t      offset         = cfg.ce_pkt_offset;
+      size_t      pkt_size       = (cfg.ack_rewrite.mss_bytes > 0) ? cfg.ack_rewrite.mss_bytes : 1336;
+      size_t      offset         = cfg.ack_rewrite.ce_pkt_offset;
       size_t      total_pkt      = 0;
       size_t      ce_pkt         = offset;
       size_t      ce_bytes       = 0;
@@ -202,10 +207,14 @@ void mark_entity_impl::handle_pdu(byte_buffer pdu, qos_flow_id_t qfi)
         total_pkt = (acked_bytes - 1) / pkt_size;
       }
 
-      if (pkt.ecn == ip::ecn_codepoint::ect_1 && f.pkts_with_ecn1 > 0 && f.pkts_with_ce > offset) {
+      // The class (L4S or classic) of the DL flow decides, not the ECN codepoint of the ACK, which is usually Not-ECT.
+      bool l4s_rewrite     = f.ect == ip::ecn_codepoint::ect_1 && cfg.l4s.tcp == mark_signal::ack_rewrite;
+      bool classic_rewrite = f.ect == ip::ecn_codepoint::ect_0 && cfg.classic.tcp == mark_signal::ack_rewrite;
+
+      if (l4s_rewrite && f.pkts_with_ecn1 > 0 && f.pkts_with_ce > offset) {
         double portion =
             static_cast<double>(f.bytes_with_ce) / static_cast<double>(f.bytes_with_ecn1 + f.bytes_with_ce);
-        portion *= cfg.l4s_ce_portion_scale; // Default / 10
+        portion *= cfg.ack_rewrite.l4s_ce_scale; // Default / 10
         ce_pkt = static_cast<size_t>(total_pkt * portion) + offset;
         ce_bytes =
             (ce_pkt * pkt_size >= offset * pkt_size) ? ((ce_pkt * pkt_size - offset * pkt_size) % ip::DIVOPT) : 0;
@@ -213,8 +222,7 @@ void mark_entity_impl::handle_pdu(byte_buffer pdu, qos_flow_id_t qfi)
           ecn1_bytes = (acked_bytes - ce_bytes) % ip::DIVOPT;
         }
         should_rewrite = true;
-      } else if (!cfg.dl_classic_tcp_mark && pkt.ecn == ip::ecn_codepoint::ect_0 && f.pkts_with_ecn0 > 0 &&
-                 f.pkts_with_ce > offset) {
+      } else if (classic_rewrite && f.pkts_with_ecn0 > 0 && f.pkts_with_ce > offset) {
         double portion =
             static_cast<double>(f.bytes_with_ce) / static_cast<double>(f.bytes_with_ecn0 + f.bytes_with_ce);
         ce_pkt = static_cast<size_t>(total_pkt * portion) + offset;

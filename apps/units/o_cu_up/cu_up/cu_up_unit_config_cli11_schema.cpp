@@ -133,35 +133,93 @@ static void configure_cli11_test_mode_args(CLI::App& app, cu_up_unit_test_mode_c
       ->capture_default_str();
 }
 
+/// Adds an option selecting how congestion is signalled for a traffic class. UDP has no ACKs, so it cannot use
+/// ack_rewrite.
+static void add_mark_signal_option(CLI::App&          app,
+                                   const std::string& name,
+                                   mark_signal&       signal,
+                                   bool               is_tcp,
+                                   const std::string& desc)
+{
+  std::vector<std::string> values = {"none", "dl_ce"};
+  if (is_tcp) {
+    values.emplace_back("ack_rewrite");
+  }
+  add_option_function<std::string>(
+      app,
+      name,
+      [&signal](const std::string& value) {
+        if (value == "dl_ce") {
+          signal = mark_signal::dl_ce;
+        } else if (value == "ack_rewrite") {
+          signal = mark_signal::ack_rewrite;
+        } else {
+          signal = mark_signal::none;
+        }
+      },
+      desc)
+      ->default_str(to_string(signal))
+      ->check(CLI::IsMember(values));
+}
+
 static void configure_cli11_l4span_args(CLI::App& app, mark_config& mark_cfg)
 {
-  add_option(app, "--enabled", mark_cfg.enabled, "Enable L4Span marking entity")->capture_default_str();
-  add_option(app, "--l4s_target_delay_us", mark_cfg.l4s_target_delay_us, "L4S target queue delay (us)")
+  add_option(app, "--enabled", mark_cfg.enabled, "Insert the L4Span MARK entity between GTP-U and SDAP")
       ->capture_default_str();
-  add_option(app, "--classic_max_queue_bytes", mark_cfg.classic_max_queue_bytes, "Classic max queue bytes")
+  add_option(app, "--flow_idle_timeout_ms", mark_cfg.flow_idle_timeout_ms, "Flow liveness timeout (ms)")
       ->capture_default_str();
-  add_option(app, "--pred_window_pkts", mark_cfg.pred_window_pkts, "Prediction window packets")->capture_default_str();
-  add_option(app, "--min_rate_interval_us", mark_cfg.min_rate_interval_us, "Min rate interval (us)")
+
+  CLI::App* estimator_subcmd = add_subcommand(app, "estimator", "Dequeue rate estimator parameters")->configurable();
+  add_option(*estimator_subcmd,
+             "--window_pkts",
+             mark_cfg.estimator.window_pkts,
+             "Moving-average window of the dequeue rate predictor (packets)")
       ->capture_default_str();
-  add_option(app, "--flow_idle_timeout_ms", mark_cfg.flow_idle_timeout_ms, "Flow idle timeout (ms)")
+  add_option(*estimator_subcmd,
+             "--min_rate_interval_us",
+             mark_cfg.estimator.min_rate_interval_us,
+             "Reuse the previous dequeue rate if feedback arrives sooner than this (us)")
       ->capture_default_str();
-  add_option(app, "--dl_udp_mark", mark_cfg.dl_udp_mark, "Enable DL UDP CE marking")->capture_default_str();
-  add_option(app,
-             "--dl_classic_tcp_mark",
-             mark_cfg.dl_classic_tcp_mark,
-             "CE-mark DL classic (ECT(0)) TCP packets instead of rewriting their UL AccECN feedback")
+
+  CLI::App* l4s_subcmd = add_subcommand(app, "l4s", "L4S (ECT(1)) marking parameters")->configurable();
+  add_option(*l4s_subcmd, "--target_delay_us", mark_cfg.l4s.target_delay_us, "Target queueing delay (us)")
       ->capture_default_str();
-  add_option(app, "--ul_ack_rewrite", mark_cfg.ul_ack_rewrite, "Enable UL AccECN ACK rewrite")->capture_default_str();
-  add_option(app, "--ack_mss_bytes", mark_cfg.ack_mss_bytes, "ACK MSS in bytes")->capture_default_str();
-  add_option(app, "--l4s_ce_portion_scale", mark_cfg.l4s_ce_portion_scale, "L4S CE portion scale")
+  add_option(*l4s_subcmd,
+             "--legacy_prob_truncation",
+             mark_cfg.l4s.legacy_prob_truncation,
+             "Reproduce the integer truncation of the marking probability in the original L4Span")
       ->capture_default_str();
-  add_option(app, "--ce_pkt_offset", mark_cfg.ce_pkt_offset, "CE packet offset")->capture_default_str();
-  add_option(app, "--classic_mss_bytes", mark_cfg.classic_mss_bytes, "Classic MSS in bytes")->capture_default_str();
-  add_option(app, "--classic_beta", mark_cfg.classic_beta, "Classic beta parameter")->capture_default_str();
-  add_option(app,
-             "--legacy_l4s_prob_truncation",
-             mark_cfg.legacy_l4s_prob_truncation,
-             "Reproduce 24.10 integer truncation bug")
+  add_mark_signal_option(*l4s_subcmd, "--tcp", mark_cfg.l4s.tcp, true, "Signalling of L4S TCP flows");
+  add_mark_signal_option(*l4s_subcmd, "--udp", mark_cfg.l4s.udp, false, "Signalling of L4S UDP flows");
+
+  CLI::App* classic_subcmd = add_subcommand(app, "classic", "Classic (ECT(0)) marking parameters")->configurable();
+  add_option(*classic_subcmd,
+             "--max_queue_bytes",
+             mark_cfg.classic.max_queue_bytes,
+             "Standing queue above which classic flows are marked, divided by the number of UEs (bytes)")
+      ->capture_default_str();
+  add_option(*classic_subcmd, "--mss_bytes", mark_cfg.classic.mss_bytes, "MSS used by the marking probability")
+      ->capture_default_str();
+  add_option(*classic_subcmd, "--beta", mark_cfg.classic.beta, "Constant used by the marking probability")
+      ->capture_default_str();
+  add_mark_signal_option(*classic_subcmd, "--tcp", mark_cfg.classic.tcp, true, "Signalling of classic TCP flows");
+  add_mark_signal_option(*classic_subcmd, "--udp", mark_cfg.classic.udp, false, "Signalling of classic UDP flows");
+
+  CLI::App* ack_rewrite_subcmd =
+      add_subcommand(app, "ack_rewrite", "UL AccECN feedback rewrite parameters, for classes using ack_rewrite")
+          ->configurable();
+  add_option(*ack_rewrite_subcmd,
+             "--mss_bytes",
+             mark_cfg.ack_rewrite.mss_bytes,
+             "Segment size assumed when synthesizing the AccECN counters")
+      ->capture_default_str();
+  add_option(
+      *ack_rewrite_subcmd, "--ce_pkt_offset", mark_cfg.ack_rewrite.ce_pkt_offset, "Initial CE packet counter offset")
+      ->capture_default_str();
+  add_option(*ack_rewrite_subcmd,
+             "--l4s_ce_scale",
+             mark_cfg.ack_rewrite.l4s_ce_scale,
+             "Scale of the CE portion reported to L4S flows")
       ->capture_default_str();
 }
 

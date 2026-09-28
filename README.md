@@ -25,9 +25,10 @@ A per-PDU-session MARK entity sits between GTP-U and SDAP in the CU-UP (`lib/mar
 
 * It models each DRB's RLC queue from the DL SDUs it forwards and the DL data delivery status reports that the DU already sends over F1-U.
 * From the predicted dequeue rate, it derives a marking probability for L4S (ECT(1)) and classic (ECT(0)) flows.
-* It CE-marks DL UDP packets.
-* It CE-marks DL classic (ECT(0)) TCP packets, so any ECN-capable TCP (RFC 3168 or AccECN) reacts (`dl_classic_tcp_mark`, on by default).
-* It leaves DL L4S (ECT(1)) TCP packets unmarked and rewrites the AccECN feedback of their UL ACKs instead, so the sender sees congestion without waiting for the RAN round trip.
+* It signals congestion per class (`l4s`, `classic`) and transport (`tcp`, `udp`) in one of two ways:
+  * `dl_ce`: CE-mark the DL packet, so that any ECN-capable receiver (RFC 3168 or AccECN) echoes it.
+  * `ack_rewrite` (TCP only): leave the DL packet unmarked and rewrite the AccECN feedback of the UL ACKs, so the sender sees congestion without waiting for the RAN round trip. This needs AccECN on both ends.
+* By default, L4S TCP uses `ack_rewrite`, and classic TCP and all UDP use `dl_ce`. Any class can also be set to `none`.
 
 L4Span is disabled by default. When disabled, MARK is not created and the data path is unchanged. To enable it, add the `configs/l4span.yml` overlay:
 
@@ -42,9 +43,10 @@ Only the CU-UP part of the original is ported. Its unused M1/MR-U interface, tim
 | Original (24.10) | This port |
 |---|---|
 | Always on | `cu_up: l4span: enabled`, off by default |
-| Classic (ECT(0)) TCP signalled only through the UL AccECN rewrite, so RFC 3168 ECN senders never see it | Classic TCP is CE-marked on the DL and its ACKs are not rewritten; L4S TCP keeps the AccECN rewrite. `dl_classic_tcp_mark: false` restores the original |
+| Fixed signalling: TCP through the UL AccECN rewrite, UDP through DL CE marks. Classic TCP with RFC 3168 ECN never sees a signal | Configurable per class and transport. Classic TCP defaults to DL CE marks; `classic: tcp: ack_rewrite` restores the original |
+| An ACK is rewritten only if the ACK packet itself is ECT, which pure ACKs usually are not | The class of the ACK's DL flow decides |
 | DU feedback handled on the UL executor | Handled on the UE DL executor, together with the DL path |
-| L4S probability `(uint32_t)(req - pred + err) / 2 / err` truncates to an integer | `(req - pred + err) / (2 * err)`; the original is kept behind `legacy_l4s_prob_truncation` |
+| L4S probability `(uint32_t)(req - pred + err) / 2 / err` truncates to an integer | `(req - pred + err) / (2 * err)`; the original is kept behind `l4s: legacy_prob_truncation` |
 | Marking probability kept after all flows of a type go idle | 0 once no flow of that type was seen for `flow_idle_timeout_ms` |
 | Non-ECT flows count as classic flows | Not counted |
 | SDUs of unmapped QoS flows counted in the queue model | Not counted (SDAP drops them) |

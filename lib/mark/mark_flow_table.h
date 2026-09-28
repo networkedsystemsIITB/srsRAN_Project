@@ -45,6 +45,8 @@ struct flow_entry {
   uint32_t                  ack_raw         = 0;
   bool                      ack_raw_init    = false;
   bool                      initialized     = false;
+  /// ECT codepoint of the flow's DL data packets, which decides its class (L4S or classic) for the UL ACK rewrite.
+  ip::ecn_codepoint ect = ip::ecn_codepoint::not_ect;
 };
 
 class mark_flow_table
@@ -70,6 +72,9 @@ public:
     if (!entry.initialized) {
       entry.pkts_with_ce = initial_ce_offset;
       entry.initialized  = true;
+    }
+    if (ecn == ip::ecn_codepoint::ect_0 || ecn == ip::ecn_codepoint::ect_1) {
+      entry.ect = ecn;
     }
 
     if (ecn == ip::ecn_codepoint::ect_1) {
