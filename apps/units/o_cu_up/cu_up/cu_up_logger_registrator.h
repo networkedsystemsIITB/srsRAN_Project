@@ -55,6 +55,10 @@ inline void register_cu_up_loggers(const cu_up_unit_logger_config& log_cfg)
   auto& sdap_logger = srslog::fetch_basic_logger("SDAP", false);
   sdap_logger.set_level(log_cfg.sdap_level);
   sdap_logger.set_hex_dump_max_size(log_cfg.hex_max_size);
+
+  auto& mark_logger = srslog::fetch_basic_logger("MARK", false);
+  mark_logger.set_level(log_cfg.mark_level);
+  mark_logger.set_hex_dump_max_size(log_cfg.hex_max_size);
 }
 
 } // namespace srsran

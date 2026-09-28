@@ -99,7 +99,26 @@ static void fill_cu_up_log_section(YAML::Node node, const cu_up_unit_logger_conf
   node["gtpu_level"]   = srslog::basic_level_to_string(config.gtpu_level);
   node["f1u_level"]    = srslog::basic_level_to_string(config.f1u_level);
   node["cu_level"]     = srslog::basic_level_to_string(config.cu_level);
+  node["mark_level"]   = srslog::basic_level_to_string(config.mark_level);
   node["hex_max_size"] = config.hex_max_size;
+}
+
+static void fill_cu_up_l4span_section(YAML::Node node, const mark_config& config)
+{
+  node["enabled"]                    = config.enabled;
+  node["l4s_target_delay_us"]        = config.l4s_target_delay_us;
+  node["classic_max_queue_bytes"]    = config.classic_max_queue_bytes;
+  node["pred_window_pkts"]           = config.pred_window_pkts;
+  node["min_rate_interval_us"]       = config.min_rate_interval_us;
+  node["flow_idle_timeout_ms"]       = config.flow_idle_timeout_ms;
+  node["dl_udp_mark"]                = config.dl_udp_mark;
+  node["ul_ack_rewrite"]             = config.ul_ack_rewrite;
+  node["ack_mss_bytes"]              = config.ack_mss_bytes;
+  node["l4s_ce_portion_scale"]       = config.l4s_ce_portion_scale;
+  node["ce_pkt_offset"]              = config.ce_pkt_offset;
+  node["classic_mss_bytes"]          = config.classic_mss_bytes;
+  node["classic_beta"]               = config.classic_beta;
+  node["legacy_l4s_prob_truncation"] = config.legacy_l4s_prob_truncation;
 }
 
 static void fill_cu_up_section(YAML::Node node, const cu_up_unit_config& config)
@@ -160,6 +179,7 @@ void srsran::fill_cu_up_config_in_yaml_schema(YAML::Node& node, const cu_up_unit
   YAML::Node cu_up_node = node["cu_up"];
   fill_cu_up_section(cu_up_node, config);
   fill_cu_up_ngu_section(cu_up_node["ngu"], config.ngu_cfg);
+  fill_cu_up_l4span_section(cu_up_node["l4span"], config.l4span_cfg);
 
   fill_cu_up_qos_section(cu_up_node, config.qos_cfg);
 }

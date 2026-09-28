@@ -133,6 +133,33 @@ static void configure_cli11_test_mode_args(CLI::App& app, cu_up_unit_test_mode_c
       ->capture_default_str();
 }
 
+static void configure_cli11_l4span_args(CLI::App& app, mark_config& mark_cfg)
+{
+  add_option(app, "--enabled", mark_cfg.enabled, "Enable L4Span marking entity")->capture_default_str();
+  add_option(app, "--l4s_target_delay_us", mark_cfg.l4s_target_delay_us, "L4S target queue delay (us)")
+      ->capture_default_str();
+  add_option(app, "--classic_max_queue_bytes", mark_cfg.classic_max_queue_bytes, "Classic max queue bytes")
+      ->capture_default_str();
+  add_option(app, "--pred_window_pkts", mark_cfg.pred_window_pkts, "Prediction window packets")->capture_default_str();
+  add_option(app, "--min_rate_interval_us", mark_cfg.min_rate_interval_us, "Min rate interval (us)")
+      ->capture_default_str();
+  add_option(app, "--flow_idle_timeout_ms", mark_cfg.flow_idle_timeout_ms, "Flow idle timeout (ms)")
+      ->capture_default_str();
+  add_option(app, "--dl_udp_mark", mark_cfg.dl_udp_mark, "Enable DL UDP CE marking")->capture_default_str();
+  add_option(app, "--ul_ack_rewrite", mark_cfg.ul_ack_rewrite, "Enable UL AccECN ACK rewrite")->capture_default_str();
+  add_option(app, "--ack_mss_bytes", mark_cfg.ack_mss_bytes, "ACK MSS in bytes")->capture_default_str();
+  add_option(app, "--l4s_ce_portion_scale", mark_cfg.l4s_ce_portion_scale, "L4S CE portion scale")
+      ->capture_default_str();
+  add_option(app, "--ce_pkt_offset", mark_cfg.ce_pkt_offset, "CE packet offset")->capture_default_str();
+  add_option(app, "--classic_mss_bytes", mark_cfg.classic_mss_bytes, "Classic MSS in bytes")->capture_default_str();
+  add_option(app, "--classic_beta", mark_cfg.classic_beta, "Classic beta parameter")->capture_default_str();
+  add_option(app,
+             "--legacy_l4s_prob_truncation",
+             mark_cfg.legacy_l4s_prob_truncation,
+             "Reproduce 24.10 integer truncation bug")
+      ->capture_default_str();
+}
+
 static void configure_cli11_cu_up_args(CLI::App& app, cu_up_unit_config& cu_up_params)
 {
   // NG-U section.
@@ -142,6 +169,10 @@ static void configure_cli11_cu_up_args(CLI::App& app, cu_up_unit_config& cu_up_p
   // Test mode section.
   CLI::App* test_mode_subcmd = add_subcommand(app, "test_mode", "CU-UP test mode parameters")->configurable();
   configure_cli11_test_mode_args(*test_mode_subcmd, cu_up_params.test_mode_cfg);
+
+  // L4Span section.
+  CLI::App* l4span_subcmd = add_subcommand(app, "l4span", "L4Span/MARK parameters")->configurable();
+  configure_cli11_l4span_args(*l4span_subcmd, cu_up_params.l4span_cfg);
 
   add_option(app,
              "--warn_on_drop",
@@ -158,6 +189,7 @@ static void configure_cli11_log_args(CLI::App& app, cu_up_unit_logger_config& lo
   app_helpers::add_log_option(app, log_params.e1ap_level, "--e1ap_level", "E1AP log level");
   app_helpers::add_log_option(app, log_params.f1u_level, "--f1u_level", "F1-U log level");
   app_helpers::add_log_option(app, log_params.cu_level, "--cu_level", "Log level for the CU");
+  app_helpers::add_log_option(app, log_params.mark_level, "--mark_level", "MARK log level");
 
   add_option(app,
              "--hex_max_size",

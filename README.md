@@ -16,6 +16,46 @@ Community announcements and support - [Discussion board](https://www.github.com/
 
 Features and roadmap - [Features](https://docs.srsran.com/projects/project/en/latest/general/source/2_features_and_roadmap.html).
 
+L4Span
+------
+
+This branch adds [L4Span](https://github.com/PrincetonUniversity/L4Span) (Wan & Jamieson, *L4Span: Spanning Congestion Signaling over NextG Networks for Interactive Applications*, CoNEXT 2025, [doi:10.1145/3768972](https://doi.org/10.1145/3768972)) to srsRAN 25.10. The original prototype is built on srsRAN 24.10.
+
+A per-PDU-session MARK entity sits between GTP-U and SDAP in the CU-UP (`lib/mark`):
+
+* It models each DRB's RLC queue from the DL SDUs it forwards and the DL data delivery status reports that the DU already sends over F1-U.
+* From the predicted dequeue rate, it derives a marking probability for L4S (ECT(1)) and classic (ECT(0)) flows.
+* It CE-marks DL UDP packets.
+* For TCP it leaves DL packets unmarked. It rewrites the AccECN feedback of UL ACKs instead, so the sender sees congestion without waiting for the RAN round trip.
+
+L4Span is disabled by default. When disabled, MARK is not created and the data path is unchanged. To enable it, add the `configs/l4span.yml` overlay:
+
+    sudo ./gnb -c <base config>.yml -c l4span.yml
+
+Set `log: mark_level: debug` to log every marking decision. The feedback period is the DU F1-U timer (`qos: f1u_du: backoff_timer`, 10 ms by default).
+
+### Differences from the original implementation
+
+Only the CU-UP part of the original is ported. Its unused M1/MR-U interface, time-series library, RLC and DU changes are left out. The algorithm and its constants are kept; each constant is a configuration key whose default is the original value. The behaviour differs in the following ways:
+
+| Original (24.10) | This port |
+|---|---|
+| Always on | `cu_up: l4span: enabled`, off by default |
+| DU feedback handled on the UL executor | Handled on the UE DL executor, together with the DL path |
+| L4S probability `(uint32_t)(req - pred + err) / 2 / err` truncates to an integer | `(req - pred + err) / (2 * err)`; the original is kept behind `legacy_l4s_prob_truncation` |
+| Marking probability kept after all flows of a type go idle | 0 once no flow of that type was seen for `flow_idle_timeout_ms` |
+| Non-ECT flows count as classic flows | Not counted |
+| SDUs of unmapped QoS flows counted in the queue model | Not counted (SDAP drops them) |
+| Queue model breaks at PDCP SN wrap-around | Modular SN arithmetic; resynchronises if feedback runs ahead of the model |
+| Each `byte_buffer` segment parsed as a packet; 20-byte IPv4 header assumed | One packet per SDU; IP options, fragments and non-IPv4 handled (non-IPv4 passes through) |
+| AccECN option always overwritten with 9 bytes | Only the fields present in the option are written |
+| Full IP/TCP checksum recomputation | Incremental checksum update (RFC 1624) |
+| First dequeue-rate sample is 0 | Measured from the ingress time of the first packet |
+| Classic probability not capped | Capped at 1 |
+| Flows never removed | Idle flows evicted |
+| ACK rewrite breaks once a flow's TCP sequence numbers wrap (after 4 GiB) | Serial number arithmetic |
+| `rand()` | Per-entity PRNG |
+
 Build Preparation
 -----------------
 

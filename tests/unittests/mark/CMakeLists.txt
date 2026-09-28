@@ -34,3 +34,8 @@ add_executable(mark_queue_model_test mark_queue_model_test.cpp)
 target_link_libraries(mark_queue_model_test srsran_mark srsran_support srslog gtest gtest_main)
 target_include_directories(mark_queue_model_test PRIVATE ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(mark_queue_model_test)
+
+add_executable(mark_config_test mark_config_test.cpp)
+target_link_libraries(mark_config_test srsran_cu_up_app_unit srsran_mark srsran_support srslog yaml-cpp gtest gtest_main)
+target_include_directories(mark_config_test PRIVATE ${CMAKE_SOURCE_DIR})
+gtest_discover_tests(mark_config_test)

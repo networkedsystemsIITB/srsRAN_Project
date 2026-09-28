@@ -1,0 +1,26 @@
+# L4Span configuration section.
+
+# This is a supplementary configuration file that enables L4Span ECN marking in the CU-UP (see README.md). It can be
+# combined with any gNB or CU-UP base configuration, for example:
+#   sudo ./gnb -c gnb_rf_b200_tdd_n78_20mhz.yml -c l4span.yml
+# The values below are the defaults, which match the constants of the original L4Span implementation.
+
+cu_up:
+  l4span:
+    enabled: true                       # Insert the MARK entity between GTP-U and SDAP.
+    l4s_target_delay_us: 10000          # Target RLC queueing delay for L4S (ECT(1)) flows.
+    classic_max_queue_bytes: 225000     # Standing queue above which classic (ECT(0)) flows are marked. Divided by the number of UEs.
+    pred_window_pkts: 50                # Moving-average window of the dequeue rate predictor, in packets.
+    min_rate_interval_us: 1000          # Reuse the previous dequeue rate if feedback arrives sooner than this.
+    flow_idle_timeout_ms: 1000          # Flow liveness timeout.
+    dl_udp_mark: true                   # CE-mark DL UDP packets.
+    ul_ack_rewrite: true                # Rewrite AccECN feedback on UL TCP ACKs.
+    ack_mss_bytes: 1336                 # Segment size assumed when synthesizing AccECN counters.
+    l4s_ce_portion_scale: 0.1           # Scale of the CE portion reported to L4S flows.
+    ce_pkt_offset: 5                    # Initial CE packet counter offset.
+    classic_mss_bytes: 1460             # MSS used by the classic marking probability.
+    classic_beta: 1.75                  # Constant used by the classic marking probability.
+    legacy_l4s_prob_truncation: false   # Reproduce the original integer truncation of the L4S probability.
+
+log:
+  mark_level: warning                   # Set to debug to log every marking decision.
