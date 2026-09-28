@@ -48,7 +48,8 @@ static void assert_cu_up_dependencies_valid(const cu_up_dependencies& dependenci
 
 static cu_up_manager_impl_config generate_cu_up_manager_impl_config(const cu_up_config& config)
 {
-  return {config.cu_up_id, config.cu_up_name, config.plmn, config.qos, config.n3_cfg, config.test_mode_cfg};
+  return {
+      config.cu_up_id, config.cu_up_name, config.plmn, config.qos, config.n3_cfg, config.test_mode_cfg, config.mark};
 }
 
 static cu_up_manager_impl_dependencies

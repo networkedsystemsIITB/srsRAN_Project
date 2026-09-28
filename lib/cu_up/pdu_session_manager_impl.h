@@ -32,11 +32,15 @@
 #include "srsran/f1u/cu_up/f1u_gateway.h"
 #include "srsran/gtpu/gtpu_demux.h"
 #include "srsran/gtpu/gtpu_teid_pool.h"
+#include "srsran/mark/mark_config.h"
 #include "srsran/support/rate_limiting/token_bucket.h"
 #include "srsran/support/timers.h"
+#include <atomic>
 #include <map>
 
 namespace srsran::srs_cu_up {
+
+static inline const std::atomic<uint32_t> default_nof_ues_counter{1};
 
 class pdu_session_manager_impl final : public pdu_session_manager_ctrl
 {
@@ -62,7 +66,9 @@ public:
                            task_executor&                                   ue_ul_exec_,
                            task_executor&                                   ue_ctrl_exec_,
                            task_executor&                                   crypto_exec_,
-                           dlt_pcap&                                        gtpu_pcap_);
+                           dlt_pcap&                                        gtpu_pcap_,
+                           const mark_config&                               mark_cfg_ = {},
+                           const std::atomic<uint32_t>&                     nof_ues_  = default_nof_ues_counter);
 
   pdu_session_setup_result        setup_pdu_session(const e1ap_pdu_session_res_to_setup_item& session) override;
   pdu_session_modification_result modify_pdu_session(const e1ap_pdu_session_res_to_modify_item& session,
@@ -120,6 +126,8 @@ private:
   e1ap_interface&                                          e1ap;
   f1u_cu_up_gateway&                                       f1u_gw;
   ngu_session_manager&                                     ngu_session_mngr;
+  const mark_config&                                       mark_cfg;
+  const std::atomic<uint32_t>&                             nof_ues;
   std::map<pdu_session_id_t, std::unique_ptr<pdu_session>> pdu_sessions; // key is pdu_session_id
 };
 

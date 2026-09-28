@@ -90,6 +90,10 @@ void f1u_bearer_impl::handle_pdu_impl(nru_ul_message msg)
   if (msg.data_delivery_status.has_value()) {
     nru_dl_data_delivery_status& status = msg.data_delivery_status.value();
 
+    if (observer != nullptr) {
+      observer->on_delivery_status(status);
+    }
+
     // Desired buffer size
     if (not dl_exec.defer([this, status]() {
           rx_delivery_notifier.on_desired_buffer_size_notification(status.desired_buffer_size_for_drb);

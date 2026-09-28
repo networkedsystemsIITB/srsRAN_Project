@@ -32,9 +32,10 @@ using namespace srs_cu_up;
 
 /// Helper functions
 static ue_manager_config generate_ue_manager_config(const n3_interface_config&    n3_config,
-                                                    const cu_up_test_mode_config& test_mode_config)
+                                                    const cu_up_test_mode_config& test_mode_config,
+                                                    const mark_config&            mark_cfg)
 {
-  return {n3_config, test_mode_config};
+  return {n3_config, test_mode_config, mark_cfg};
 }
 
 static ue_manager_dependencies generate_ue_manager_dependencies(const cu_up_manager_impl_dependencies& dependencies,
@@ -62,13 +63,14 @@ cu_up_manager_impl::cu_up_manager_impl(const cu_up_manager_impl_config&       co
   qos(config.qos),
   n3_cfg(config.n3_cfg),
   test_mode_cfg(config.test_mode_cfg),
+  mark_cfg(config.mark_cfg),
   ngu_demux(dependencies.ngu_demux),
   exec_mapper(dependencies.exec_mapper),
   timers(dependencies.timers),
   cu_up_task_scheduler(dependencies.cu_up_task_scheduler)
 {
   /// > Create UE manager
-  ue_mng = std::make_unique<ue_manager>(generate_ue_manager_config(n3_cfg, test_mode_cfg),
+  ue_mng = std::make_unique<ue_manager>(generate_ue_manager_config(n3_cfg, test_mode_cfg, mark_cfg),
                                         generate_ue_manager_dependencies(dependencies, logger));
 }
 

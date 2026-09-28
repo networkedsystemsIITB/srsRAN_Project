@@ -40,6 +40,7 @@ namespace srs_cu_up {
 struct ue_manager_config {
   const n3_interface_config&    n3_config;
   const cu_up_test_mode_config& test_mode_config;
+  mark_config                   mark_cfg = {};
 };
 
 /// UE manager dependencies.
@@ -91,6 +92,8 @@ private:
 
   const n3_interface_config&    n3_config;
   const cu_up_test_mode_config& test_mode_config;
+  const mark_config             mark_cfg;
+  std::atomic<uint32_t>         nof_ues{0};
   e1ap_interface&               e1ap;
   f1u_cu_up_gateway&            f1u_gw;
   ngu_session_manager&          ngu_session_mngr;

@@ -433,3 +433,50 @@ TEST_F(f1u_cu_up_test, rx_delivery_notification)
   tick(inactivity_time_ms);
   EXPECT_TRUE(ue_inactivity_triggered);
 }
+
+class dummy_delivery_status_observer : public f1u_rx_delivery_status_observer
+{
+public:
+  std::vector<nru_dl_data_delivery_status> received_statuses;
+
+  void on_delivery_status(const nru_dl_data_delivery_status& status) override { received_statuses.push_back(status); }
+};
+
+TEST_F(f1u_cu_up_test, delivery_status_observer)
+{
+  dummy_delivery_status_observer observer;
+  f1u->set_delivery_status_observer(&observer);
+
+  nru_dl_data_delivery_status status             = {};
+  status.desired_buffer_size_for_drb             = 50000;
+  status.highest_transmitted_pdcp_sn             = 100;
+  status.highest_delivered_pdcp_sn               = 95;
+  status.highest_retransmitted_pdcp_sn           = 80;
+  status.highest_delivered_retransmitted_pdcp_sn = 75;
+
+  nru_ul_message msg       = {};
+  msg.data_delivery_status = status;
+  f1u->handle_pdu(std::move(msg));
+  ue_worker.run_pending_tasks();
+
+  // The observer is called in handle_pdu_impl on ul_exec
+  ASSERT_EQ(observer.received_statuses.size(), 1);
+  const auto& received = observer.received_statuses[0];
+  EXPECT_EQ(received.desired_buffer_size_for_drb, 50000);
+  ASSERT_TRUE(received.highest_transmitted_pdcp_sn.has_value());
+  EXPECT_EQ(received.highest_transmitted_pdcp_sn.value(), 100);
+  ASSERT_TRUE(received.highest_delivered_pdcp_sn.has_value());
+  EXPECT_EQ(received.highest_delivered_pdcp_sn.value(), 95);
+  ASSERT_TRUE(received.highest_retransmitted_pdcp_sn.has_value());
+  EXPECT_EQ(received.highest_retransmitted_pdcp_sn.value(), 80);
+  ASSERT_TRUE(received.highest_delivered_retransmitted_pdcp_sn.has_value());
+  EXPECT_EQ(received.highest_delivered_retransmitted_pdcp_sn.value(), 75);
+
+  // Clearing observer stops notifications
+  f1u->set_delivery_status_observer(nullptr);
+  nru_ul_message msg2       = {};
+  msg2.data_delivery_status = status;
+  f1u->handle_pdu(std::move(msg2));
+  ue_worker.run_pending_tasks();
+  EXPECT_EQ(observer.received_statuses.size(), 1);
+}

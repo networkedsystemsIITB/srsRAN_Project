@@ -25,7 +25,9 @@
 #include "srsran/e1ap/cu_up/e1ap_config_converters.h"
 #include "srsran/f1u/cu_up/f1u_bearer_factory.h"
 #include "srsran/gtpu/gtpu_tunnel_ngu_factory.h"
+#include "srsran/mark/mark_factory.h"
 #include "srsran/pdcp/pdcp_factory.h"
+#include "srsran/pdcp/pdcp_sn_size.h"
 #include "srsran/sdap/sdap_factory.h"
 #include "srsran/support/rate_limiting/token_bucket_config.h"
 #include "srsran/support/srsran_assert.h"
@@ -41,21 +43,23 @@ pdu_session_manager_impl::pdu_session_manager_impl(ue_index_t                   
                                                    const cu_up_test_mode_config&                    test_mode_config_,
                                                    cu_up_ue_logger&                                 logger_,
                                                    uint64_t                                         ue_dl_ambr,
-                                                   unique_timer&        ue_inactivity_timer_,
-                                                   timer_factory        ue_dl_timer_factory_,
-                                                   timer_factory        ue_ul_timer_factory_,
-                                                   timer_factory        ue_ctrl_timer_factory_,
-                                                   e1ap_interface&      e1ap_,
-                                                   f1u_cu_up_gateway&   f1u_gw_,
-                                                   ngu_session_manager& ngu_session_mngr_,
-                                                   gtpu_teid_pool&      n3_teid_allocator_,
-                                                   gtpu_teid_pool&      f1u_teid_allocator_,
-                                                   gtpu_demux_ctrl&     gtpu_rx_demux_,
-                                                   task_executor&       ue_dl_exec_,
-                                                   task_executor&       ue_ul_exec_,
-                                                   task_executor&       ue_ctrl_exec_,
-                                                   task_executor&       crypto_exec_,
-                                                   dlt_pcap&            gtpu_pcap_) :
+                                                   unique_timer&                ue_inactivity_timer_,
+                                                   timer_factory                ue_dl_timer_factory_,
+                                                   timer_factory                ue_ul_timer_factory_,
+                                                   timer_factory                ue_ctrl_timer_factory_,
+                                                   e1ap_interface&              e1ap_,
+                                                   f1u_cu_up_gateway&           f1u_gw_,
+                                                   ngu_session_manager&         ngu_session_mngr_,
+                                                   gtpu_teid_pool&              n3_teid_allocator_,
+                                                   gtpu_teid_pool&              f1u_teid_allocator_,
+                                                   gtpu_demux_ctrl&             gtpu_rx_demux_,
+                                                   task_executor&               ue_dl_exec_,
+                                                   task_executor&               ue_ul_exec_,
+                                                   task_executor&               ue_ctrl_exec_,
+                                                   task_executor&               crypto_exec_,
+                                                   dlt_pcap&                    gtpu_pcap_,
+                                                   const mark_config&           mark_cfg_,
+                                                   const std::atomic<uint32_t>& nof_ues_) :
   ue_index(ue_index_),
   qos_cfg(std::move(qos_cfg_)),
   security_info(security_info_),
@@ -76,7 +80,9 @@ pdu_session_manager_impl::pdu_session_manager_impl(ue_index_t                   
   gtpu_pcap(gtpu_pcap_),
   e1ap(e1ap_),
   f1u_gw(f1u_gw_),
-  ngu_session_mngr(ngu_session_mngr_)
+  ngu_session_mngr(ngu_session_mngr_),
+  mark_cfg(mark_cfg_),
+  nof_ues(nof_ues_)
 {
   token_bucket_config ue_ambr_config =
       generate_token_bucket_config(ue_dl_ambr, ue_dl_ambr, timer_duration(100), ue_ctrl_timer_factory);
@@ -130,11 +136,29 @@ pdu_session_setup_result pdu_session_manager_impl::setup_pdu_session(const e1ap_
   pdu_session_result.gtp_tunnel =
       up_transport_layer_info(transport_layer_address::create_from_string(n3_addr), new_session->local_teid);
 
+  // Create MARK (L4Span) entity. When enabled, it is inserted between GTP-U and SDAP in both directions.
+  if (mark_cfg.enabled) {
+    mark_entity_creation_message mark_msg = {ue_index,
+                                             session.pdu_session_id,
+                                             &new_session->mark_to_gtpu_adapter,
+                                             &new_session->mark_to_sdap_adapter,
+                                             mark_cfg,
+                                             nof_ues};
+    new_session->mark                     = create_mark(mark_msg);
+  }
+
   // Create SDAP entity
-  sdap_entity_creation_message sdap_msg = {ue_index, session.pdu_session_id, &new_session->sdap_to_gtpu_adapter};
-  new_session->sdap                     = create_sdap(sdap_msg);
+  sdap_rx_sdu_notifier* sdap_rx_notifier = new_session->mark != nullptr
+                                               ? static_cast<sdap_rx_sdu_notifier*>(&new_session->sdap_to_mark_adapter)
+                                               : &new_session->sdap_to_gtpu_adapter;
+  sdap_entity_creation_message sdap_msg  = {ue_index, session.pdu_session_id, sdap_rx_notifier};
+  new_session->sdap                      = create_sdap(sdap_msg);
 
   // Create GTPU entity
+  gtpu_tunnel_ngu_rx_lower_layer_notifier* gtpu_rx_lower =
+      new_session->mark != nullptr
+          ? static_cast<gtpu_tunnel_ngu_rx_lower_layer_notifier*>(&new_session->gtpu_to_mark_adapter)
+          : &new_session->gtpu_to_sdap_adapter;
   gtpu_tunnel_ngu_creation_message msg = {};
   msg.ue_index                         = ue_index;
   msg.cfg.tx.peer_teid                 = int_to_gtpu_teid(ul_tunnel_info.gtp_teid.value());
@@ -146,15 +170,22 @@ pdu_session_setup_result pdu_session_manager_impl::setup_pdu_session(const e1ap_
   msg.cfg.rx.t_reordering              = n3_config.gtpu_reordering_timer;
   msg.cfg.rx.warn_on_drop              = n3_config.warn_on_drop;
   msg.cfg.rx.test_mode                 = test_mode_config.enabled;
-  msg.rx_lower                         = &new_session->gtpu_to_sdap_adapter;
+  msg.rx_lower                         = gtpu_rx_lower;
   msg.tx_upper                         = &new_session->gtpu_to_udp_adapter;
   msg.gtpu_pcap                        = &gtpu_pcap;
   msg.ue_ctrl_timer_factory            = ue_ctrl_timer_factory;
   new_session->gtpu                    = create_gtpu_tunnel_ngu(msg);
 
   // Connect adapters
-  new_session->sdap_to_gtpu_adapter.connect_gtpu(*new_session->gtpu->get_tx_lower_layer_interface());
-  new_session->gtpu_to_sdap_adapter.connect_sdap(new_session->sdap->get_sdap_tx_sdu_handler());
+  if (new_session->mark != nullptr) {
+    new_session->gtpu_to_mark_adapter.connect_mark(new_session->mark->get_mark_tx_sdu_handler());
+    new_session->mark_to_sdap_adapter.connect_sdap(new_session->sdap->get_sdap_tx_sdu_handler());
+    new_session->sdap_to_mark_adapter.connect_mark(new_session->mark->get_mark_rx_pdu_handler());
+    new_session->mark_to_gtpu_adapter.connect_gtpu(*new_session->gtpu->get_tx_lower_layer_interface());
+  } else {
+    new_session->sdap_to_gtpu_adapter.connect_gtpu(*new_session->gtpu->get_tx_lower_layer_interface());
+    new_session->gtpu_to_sdap_adapter.connect_sdap(new_session->sdap->get_sdap_tx_sdu_handler());
+  }
   new_session->gtpu_to_udp_adapter.connect_network_gateway(n3_gw);
 
   // Register tunnel at demux
@@ -247,6 +278,13 @@ drb_setup_result pdu_session_manager_impl::handle_drb_to_setup_item(pdu_session&
           qos_flow.qos_flow_id, drb_to_setup.drb_id, sdap_cfg, new_qos_flow->sdap_to_pdcp_adapter);
       flow_result.success = true;
       nof_flow_success++;
+
+      if (new_session.mark != nullptr) {
+        if (nof_flow_success == 1) {
+          new_session.mark->add_drb(drb_to_setup.drb_id, pdcp_sn_size_to_uint(drb_to_setup.pdcp_cfg.pdcp_sn_size_dl));
+        }
+        new_session.mark->add_mapping(qos_flow.qos_flow_id, drb_to_setup.drb_id);
+      }
     } else {
       // fail if mapping already exists
       flow_result.success = false;
@@ -264,6 +302,9 @@ drb_setup_result pdu_session_manager_impl::handle_drb_to_setup_item(pdu_session&
   if (nof_flow_success == 0) {
     logger.log_error(
         "Failed to create {} for {}: Could not map any QoS flow", drb_to_setup.drb_id, new_session.pdu_session_id);
+    if (new_session.mark != nullptr) {
+      new_session.mark->remove_drb(drb_to_setup.drb_id);
+    }
     new_session.drbs.erase(drb_to_setup.drb_id);
     drb_result.cause   = e1ap_cause_radio_network_t::unspecified;
     drb_result.success = false;
@@ -274,6 +315,9 @@ drb_setup_result pdu_session_manager_impl::handle_drb_to_setup_item(pdu_session&
   if (qos_cfg.find(five_qi) == qos_cfg.end()) {
     logger.log_error(
         "Failed to create {} for {}: Could not find 5QI. {}", drb_to_setup.drb_id, new_session.pdu_session_id, five_qi);
+    if (new_session.mark != nullptr) {
+      new_session.mark->remove_drb(drb_to_setup.drb_id);
+    }
     new_session.drbs.erase(drb_to_setup.drb_id);
     drb_result.cause   = e1ap_cause_radio_network_t::not_supported_5qi_value;
     drb_result.success = false;
@@ -393,6 +437,12 @@ drb_setup_result pdu_session_manager_impl::handle_drb_to_setup_item(pdu_session&
                                             new_drb->pdcp->get_tx_lower_interface());
   new_drb->pdcp_to_f1u_adapter.connect_f1u(new_drb->f1u->get_tx_sdu_handler());
 
+  if (new_session.mark != nullptr) {
+    new_drb->f1u_to_mark_adapter.connect_mark(
+        new_session.mark->get_mark_delivery_status_handler(), new_drb->drb_id, ue_dl_exec);
+    new_drb->f1u->set_delivery_status_observer(&new_drb->f1u_to_mark_adapter);
+  }
+
   // Connect QoS flows to DRB
   for (auto& new_qos_flow : new_drb->qos_flows) {
     new_qos_flow.second->sdap_to_pdcp_adapter.connect_pdcp(new_drb->pdcp->get_tx_upper_data_interface());
@@ -508,6 +558,12 @@ pdu_session_manager_impl::modify_pdu_session(const e1ap_pdu_session_res_to_modif
       drb_iter->second->f1u_to_pdcp_adapter.connect_pdcp(drb_iter->second->pdcp->get_rx_lower_interface(),
                                                          drb_iter->second->pdcp->get_tx_lower_interface());
 
+      if (pdu_session->mark != nullptr) {
+        drb_iter->second->f1u_to_mark_adapter.connect_mark(
+            pdu_session->mark->get_mark_delivery_status_handler(), drb_iter->second->drb_id, ue_dl_exec);
+        drb_iter->second->f1u->set_delivery_status_observer(&drb_iter->second->f1u_to_mark_adapter);
+      }
+
       // Release old UL TEID of DRB after F1-U bearer disconnected from F1-U gateway
       if (not f1u_teid_allocator.release_teid(old_f1u_ul_teid)) {
         logger.log_error("Could not free old F1-U ul_teid={}", old_f1u_ul_teid);
@@ -589,6 +645,9 @@ pdu_session_manager_impl::modify_pdu_session(const e1ap_pdu_session_res_to_modif
   for (const auto& drb_to_rem : session.drb_to_rem_list_ng_ran) {
     // unmap all QFI that use this DRB
     pdu_session->sdap->remove_mapping(drb_to_rem);
+    if (pdu_session->mark != nullptr) {
+      pdu_session->mark->remove_drb(drb_to_rem);
+    }
 
     // find DRB in PDU session
     auto drb_iter = pdu_session->drbs.find(drb_to_rem);
@@ -637,6 +696,11 @@ void pdu_session_manager_impl::disconnect_pdu_session(pdu_session_id_t pdu_sessi
 
   // Disconnect all UL tunnels for this PDU session.
   auto& pdu_session = pdu_sessions.at(pdu_session_id);
+  if (pdu_session->mark != nullptr) {
+    for (const auto& drb : pdu_session->drbs) {
+      pdu_session->mark->remove_drb(drb.first);
+    }
+  }
   pdu_session->stop();
   for (const auto& drb : pdu_session->drbs) {
     if (!f1u_teid_allocator.release_teid(drb.second->f1u_ul_teid)) {

@@ -23,12 +23,14 @@
 #pragma once
 
 #include "adapters/gtpu_adapters.h"
+#include "adapters/mark_adapters.h"
 #include "adapters/sdap_adapters.h"
 #include "drb_context.h"
 #include "srsran/adt/batched_dispatch_queue.h"
 #include "srsran/gtpu/gtpu_demux.h"
 #include "srsran/gtpu/gtpu_teid_pool.h"
 #include "srsran/gtpu/gtpu_tunnel_ngu.h"
+#include "srsran/mark/mark.h"
 #include "srsran/ran/up_transport_layer_info.h"
 
 namespace srsran::srs_cu_up {
@@ -63,6 +65,10 @@ struct pdu_session {
       }
       gtpu->stop();
 
+      if (mark != nullptr) {
+        mark.reset();
+      }
+
       // Stop DRBs
       for (const auto& drb : drbs) {
         drb.second->stop();
@@ -75,10 +81,17 @@ struct pdu_session {
 
   std::unique_ptr<sdap_entity>     sdap;
   std::unique_ptr<gtpu_tunnel_ngu> gtpu;
+  std::unique_ptr<mark_entity>     mark;
 
   // Adapters between SDAP and GTPU
   gtpu_sdap_adapter gtpu_to_sdap_adapter;
   sdap_gtpu_adapter sdap_to_gtpu_adapter;
+
+  // Adapters between GTP-U, MARK, and SDAP
+  gtpu_mark_adapter gtpu_to_mark_adapter;
+  mark_sdap_adapter mark_to_sdap_adapter;
+  sdap_mark_adapter sdap_to_mark_adapter;
+  mark_gtpu_adapter mark_to_gtpu_adapter;
 
   // Adapters between GTP-U and NG-U/F1-U
   gtpu_network_gateway_adapter gtpu_to_udp_adapter;

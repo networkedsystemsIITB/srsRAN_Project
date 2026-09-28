@@ -24,6 +24,7 @@
 
 #include "adapters/f1u_adapters.h"
 #include "adapters/gw_adapters.h"
+#include "adapters/mark_adapters.h"
 #include "adapters/pdcp_adapters.h"
 #include "qos_flow_context.h"
 #include "srsran/f1u/cu_up/f1u_config.h"
@@ -40,6 +41,7 @@ struct drb_context {
 
   void stop()
   {
+    f1u_to_mark_adapter.disconnect();
     pdcp->stop();
     f1u->stop();
     f1u_gw_bearer->stop();
@@ -65,6 +67,9 @@ struct drb_context {
 
   // Adapter F1-U gateway -> NR-U
   f1u_gateway_rx_nru_adapter f1u_gateway_rx_to_nru_adapter;
+
+  // Adapter F1-U -> MARK
+  f1u_mark_adapter f1u_to_mark_adapter;
 
   uint8_t cell_group_id; /// This can/should be a list of cell groups.
 

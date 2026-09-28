@@ -29,6 +29,7 @@
 namespace srsran::srs_cu_up {
 
 class f1u_bearer_disconnector;
+class f1u_rx_delivery_status_observer;
 
 class f1u_bearer
 {
@@ -44,6 +45,8 @@ public:
   virtual void                stop()               = 0;
   virtual f1u_rx_pdu_handler& get_rx_pdu_handler() = 0;
   virtual f1u_tx_sdu_handler& get_tx_sdu_handler() = 0;
+
+  virtual void set_delivery_status_observer(f1u_rx_delivery_status_observer* observer) {}
 };
 
 /// This class represents the interface through which a F1-U bearer disconnects from its gateway upon destruction

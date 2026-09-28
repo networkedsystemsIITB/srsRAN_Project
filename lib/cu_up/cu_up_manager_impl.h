@@ -41,6 +41,7 @@ struct cu_up_manager_impl_config {
   std::map<five_qi_t, cu_up_qos_config> qos;
   n3_interface_config                   n3_cfg;
   cu_up_test_mode_config                test_mode_cfg;
+  mark_config                           mark_cfg = {};
 };
 
 /// CU-UP manager implementation dependencies.
@@ -108,6 +109,7 @@ private:
   const network_interface_config        net_cfg;
   const n3_interface_config             n3_cfg;
   const cu_up_test_mode_config          test_mode_cfg;
+  const mark_config                     mark_cfg;
   gtpu_demux&                           ngu_demux;
   cu_up_executor_mapper&                exec_mapper;
   timer_manager&                        timers;

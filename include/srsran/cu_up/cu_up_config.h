@@ -29,6 +29,7 @@
 #include "srsran/f1u/cu_up/f1u_gateway.h"
 #include "srsran/gtpu/gtpu_config.h"
 #include "srsran/gtpu/gtpu_gateway.h"
+#include "srsran/mark/mark_config.h"
 #include "srsran/pcap/dlt_pcap.h"
 #include "srsran/ran/gnb_cu_up_id.h"
 #include "srsran/support/timers.h"
@@ -77,6 +78,8 @@ struct cu_up_config {
   n3_interface_config n3_cfg;
   /// Test mode configuration.
   cu_up_test_mode_config test_mode_cfg;
+  /// L4Span ECN marking configuration.
+  mark_config mark;
   /// gNodeB identifier.
   gnb_id_t gnb_id = {411, 22};
   /// CU-UP identifier.

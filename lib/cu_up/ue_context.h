@@ -67,7 +67,9 @@ public:
              gtpu_teid_pool&                     n3_teid_allocator_,
              gtpu_teid_pool&                     f1u_teid_allocator_,
              gtpu_demux_ctrl&                    gtpu_rx_demux_,
-             dlt_pcap&                           gtpu_pcap) :
+             dlt_pcap&                           gtpu_pcap,
+             const mark_config&                  mark_cfg_ = {},
+             const std::atomic<uint32_t>&        nof_ues_  = default_nof_ues_counter) :
     task_sched(task_sched_),
     ue_exec_mapper(std::move(ue_exec_mapper_)),
     index(index_),
@@ -95,7 +97,9 @@ public:
                         ue_exec_mapper->ul_pdu_executor(),
                         ue_exec_mapper->ctrl_executor(),
                         ue_exec_mapper->crypto_executor(),
-                        gtpu_pcap),
+                        gtpu_pcap,
+                        mark_cfg_,
+                        nof_ues_),
     ue_dl_timer_factory(ue_dl_timer_factory_),
     ue_ul_timer_factory(ue_ul_timer_factory_),
     ue_ctrl_timer_factory(ue_ctrl_timer_factory_)

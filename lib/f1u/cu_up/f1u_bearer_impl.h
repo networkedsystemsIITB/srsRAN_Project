@@ -27,6 +27,7 @@
 #include "srsran/f1u/cu_up/f1u_bearer_logger.h"
 #include "srsran/f1u/cu_up/f1u_config.h"
 #include "srsran/f1u/cu_up/f1u_rx_delivery_notifier.h"
+#include "srsran/f1u/cu_up/f1u_rx_delivery_status_observer.h"
 #include "srsran/f1u/cu_up/f1u_rx_sdu_notifier.h"
 #include "srsran/f1u/cu_up/f1u_tx_pdu_notifier.h"
 #include "srsran/ran/rb_id.h"
@@ -55,6 +56,8 @@ public:
 
   f1u_rx_pdu_handler& get_rx_pdu_handler() override { return *this; }
   f1u_tx_sdu_handler& get_tx_sdu_handler() override { return *this; }
+
+  void set_delivery_status_observer(f1u_rx_delivery_status_observer* observer_) override { observer = observer_; }
 
   void stop() override
   {
@@ -92,6 +95,9 @@ private:
   up_transport_layer_info   ul_tnl_info;
   task_executor&            dl_exec;
   task_executor&            ul_exec;
+
+  /// Optional observer of the full DL data delivery status (used by L4Span MARK). Called on the UL executor.
+  f1u_rx_delivery_status_observer* observer = nullptr;
 
   using nru_ul_batched_queue = batched_dispatch_queue<nru_ul_message>;
   std::unique_ptr<nru_ul_batched_queue> ul_batched_queue;

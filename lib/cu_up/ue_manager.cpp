@@ -29,6 +29,7 @@ using namespace srs_cu_up;
 ue_manager::ue_manager(const ue_manager_config& config, const ue_manager_dependencies& dependencies) :
   n3_config(config.n3_config),
   test_mode_config(config.test_mode_config),
+  mark_cfg(config.mark_cfg),
   e1ap(dependencies.e1ap),
   f1u_gw(dependencies.f1u_gw),
   ngu_session_mngr(dependencies.ngu_session_mngr),
@@ -117,10 +118,13 @@ ue_context* ue_manager::add_ue(const ue_context_cfg& ue_cfg)
                                                                      n3_teid_allocator,
                                                                      f1u_teid_allocator,
                                                                      gtpu_rx_demux,
-                                                                     gtpu_pcap);
+                                                                     gtpu_pcap,
+                                                                     mark_cfg,
+                                                                     nof_ues);
 
   // add to DB
   ue_db.emplace(new_idx, std::move(new_ctx));
+  nof_ues.fetch_add(1, std::memory_order_relaxed);
   return ue_db[new_idx].get();
 }
 
@@ -133,6 +137,7 @@ async_task<void> ue_manager::remove_ue(ue_index_t ue_index)
   // Move UE context out from ue_db and erase the slot (from CU-UP shared ctrl executor)
   std::unique_ptr<ue_context> ue_ctxt = std::move(ue_db[ue_index]);
   ue_db.erase(ue_index);
+  nof_ues.fetch_sub(1, std::memory_order_relaxed);
 
   // Dispatch the stopping and deletion of the UE context to UE-specific ctrl executor
   return launch_async([this, ue_ctxt = std::move(ue_ctxt)](coro_context<async_task<void>>& ctx) mutable {

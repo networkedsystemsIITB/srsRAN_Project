@@ -42,6 +42,7 @@ target_link_libraries(srsran_cu_up
         srsran_gateway
         e1ap_asn1
         srsran_sdap
+        srsran_mark
         srsran_security
         srsran_support
         srslog)

@@ -402,6 +402,56 @@ TEST_F(pdu_session_manager_test, when_new_ul_info_is_requested_f1u_is_disconnect
   ASSERT_EQ(pdu_session_mng->get_nof_pdu_sessions(), 1);
 }
 
+TEST_F(pdu_session_manager_test, when_l4span_enabled_session_and_drb_can_be_setup_and_removed)
+{
+  mark_config mark_cfg;
+  mark_cfg.enabled = true;
+  std::atomic<uint32_t>                            nof_active_ues{1};
+  manual_task_worker                               teid_worker{128};
+  std::map<five_qi_t, srs_cu_up::cu_up_qos_config> qos;
+  qos[uint_to_five_qi(9)] = {};
+
+  auto l4span_pdu_session_mng = std::make_unique<pdu_session_manager_impl>(MIN_UE_INDEX,
+                                                                           qos,
+                                                                           security_info,
+                                                                           n3_config,
+                                                                           cu_up_test_mode_config{},
+                                                                           logger,
+                                                                           1000000000,
+                                                                           ue_inactivity_timer,
+                                                                           timers_factory,
+                                                                           timers_factory,
+                                                                           timers_factory,
+                                                                           *e1ap,
+                                                                           *f1u_gw,
+                                                                           *ngu_session_mngr,
+                                                                           *n3_allocator,
+                                                                           *f1u_allocator,
+                                                                           *gtpu_rx_demux,
+                                                                           teid_worker,
+                                                                           teid_worker,
+                                                                           teid_worker,
+                                                                           teid_worker,
+                                                                           gtpu_pcap,
+                                                                           mark_cfg,
+                                                                           nof_active_ues);
+
+  pdu_session_id_t psi    = uint_to_pdu_session_id(1);
+  drb_id_t         drb_id = uint_to_drb_id(1);
+  qos_flow_id_t    qfi    = uint_to_qos_flow_id(8);
+
+  e1ap_pdu_session_res_to_setup_item pdu_session_setup_item =
+      generate_pdu_session_res_to_setup_item(psi, drb_id, qfi, uint_to_five_qi(9));
+
+  pdu_session_setup_result setup_result = l4span_pdu_session_mng->setup_pdu_session(pdu_session_setup_item);
+  ASSERT_TRUE(setup_result.success);
+  ASSERT_EQ(l4span_pdu_session_mng->get_nof_pdu_sessions(), 1);
+
+  // remove session
+  l4span_pdu_session_mng->remove_pdu_session(psi);
+  ASSERT_EQ(l4span_pdu_session_mng->get_nof_pdu_sessions(), 0);
+}
+
 int main(int argc, char** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);
