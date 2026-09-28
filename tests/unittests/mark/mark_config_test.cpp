@@ -52,6 +52,7 @@ TEST(mark_config_test, yaml_write_and_cli11_roundtrip)
   orig_cfg.l4span_cfg.min_rate_interval_us       = 2000;
   orig_cfg.l4span_cfg.flow_idle_timeout_ms       = 500;
   orig_cfg.l4span_cfg.dl_udp_mark                = false;
+  orig_cfg.l4span_cfg.dl_classic_tcp_mark        = false;
   orig_cfg.l4span_cfg.ul_ack_rewrite             = false;
   orig_cfg.l4span_cfg.ack_mss_bytes              = 1400;
   orig_cfg.l4span_cfg.l4s_ce_portion_scale       = 0.2;
@@ -72,6 +73,7 @@ TEST(mark_config_test, yaml_write_and_cli11_roundtrip)
   EXPECT_EQ(node["cu_up"]["l4span"]["min_rate_interval_us"].as<uint32_t>(), 2000);
   EXPECT_EQ(node["cu_up"]["l4span"]["flow_idle_timeout_ms"].as<uint32_t>(), 500);
   EXPECT_EQ(node["cu_up"]["l4span"]["dl_udp_mark"].as<bool>(), false);
+  EXPECT_EQ(node["cu_up"]["l4span"]["dl_classic_tcp_mark"].as<bool>(), false);
   EXPECT_EQ(node["cu_up"]["l4span"]["ul_ack_rewrite"].as<bool>(), false);
   EXPECT_EQ(node["cu_up"]["l4span"]["ack_mss_bytes"].as<uint32_t>(), 1400);
   EXPECT_DOUBLE_EQ(node["cu_up"]["l4span"]["l4s_ce_portion_scale"].as<double>(), 0.2);
@@ -103,6 +105,7 @@ TEST(mark_config_test, yaml_write_and_cli11_roundtrip)
   EXPECT_EQ(parsed_cfg.l4span_cfg.min_rate_interval_us, 2000);
   EXPECT_EQ(parsed_cfg.l4span_cfg.flow_idle_timeout_ms, 500);
   EXPECT_EQ(parsed_cfg.l4span_cfg.dl_udp_mark, false);
+  EXPECT_EQ(parsed_cfg.l4span_cfg.dl_classic_tcp_mark, false);
   EXPECT_EQ(parsed_cfg.l4span_cfg.ul_ack_rewrite, false);
   EXPECT_EQ(parsed_cfg.l4span_cfg.ack_mss_bytes, 1400);
   EXPECT_DOUBLE_EQ(parsed_cfg.l4span_cfg.l4s_ce_portion_scale, 0.2);
@@ -121,6 +124,7 @@ TEST(mark_config_test, yaml_write_and_cli11_roundtrip)
   EXPECT_EQ(cu_up_cfg.mark.min_rate_interval_us, 2000);
   EXPECT_EQ(cu_up_cfg.mark.flow_idle_timeout_ms, 500);
   EXPECT_EQ(cu_up_cfg.mark.dl_udp_mark, false);
+  EXPECT_EQ(cu_up_cfg.mark.dl_classic_tcp_mark, false);
   EXPECT_EQ(cu_up_cfg.mark.ul_ack_rewrite, false);
   EXPECT_EQ(cu_up_cfg.mark.ack_mss_bytes, 1400);
   EXPECT_DOUBLE_EQ(cu_up_cfg.mark.l4s_ce_portion_scale, 0.2);

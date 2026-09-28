@@ -146,6 +146,11 @@ static void configure_cli11_l4span_args(CLI::App& app, mark_config& mark_cfg)
   add_option(app, "--flow_idle_timeout_ms", mark_cfg.flow_idle_timeout_ms, "Flow idle timeout (ms)")
       ->capture_default_str();
   add_option(app, "--dl_udp_mark", mark_cfg.dl_udp_mark, "Enable DL UDP CE marking")->capture_default_str();
+  add_option(app,
+             "--dl_classic_tcp_mark",
+             mark_cfg.dl_classic_tcp_mark,
+             "CE-mark DL classic (ECT(0)) TCP packets instead of rewriting their UL AccECN feedback")
+      ->capture_default_str();
   add_option(app, "--ul_ack_rewrite", mark_cfg.ul_ack_rewrite, "Enable UL AccECN ACK rewrite")->capture_default_str();
   add_option(app, "--ack_mss_bytes", mark_cfg.ack_mss_bytes, "ACK MSS in bytes")->capture_default_str();
   add_option(app, "--l4s_ce_portion_scale", mark_cfg.l4s_ce_portion_scale, "L4S CE portion scale")

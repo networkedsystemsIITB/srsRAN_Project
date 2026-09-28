@@ -112,6 +112,7 @@ static void fill_cu_up_l4span_section(YAML::Node node, const mark_config& config
   node["min_rate_interval_us"]       = config.min_rate_interval_us;
   node["flow_idle_timeout_ms"]       = config.flow_idle_timeout_ms;
   node["dl_udp_mark"]                = config.dl_udp_mark;
+  node["dl_classic_tcp_mark"]        = config.dl_classic_tcp_mark;
   node["ul_ack_rewrite"]             = config.ul_ack_rewrite;
   node["ack_mss_bytes"]              = config.ack_mss_bytes;
   node["l4s_ce_portion_scale"]       = config.l4s_ce_portion_scale;

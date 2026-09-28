@@ -35,6 +35,7 @@ struct mark_config {
   uint32_t min_rate_interval_us       = 1000;
   uint32_t flow_idle_timeout_ms       = 1000;
   bool     dl_udp_mark                = true;
+  bool     dl_classic_tcp_mark        = true;
   bool     ul_ack_rewrite             = true;
   uint32_t ack_mss_bytes              = 1336;
   double   l4s_ce_portion_scale       = 0.1;
@@ -61,7 +62,8 @@ struct formatter<srsran::mark_config> {
   {
     return format_to(ctx.out(),
                      "enabled={} l4s_target_delay_us={} classic_max_queue_bytes={} pred_window_pkts={} "
-                     "min_rate_interval_us={} flow_idle_timeout_ms={} dl_udp_mark={} ul_ack_rewrite={} "
+                     "min_rate_interval_us={} flow_idle_timeout_ms={} dl_udp_mark={} dl_classic_tcp_mark={} "
+                     "ul_ack_rewrite={} "
                      "ack_mss_bytes={} l4s_ce_portion_scale={} ce_pkt_offset={} classic_mss_bytes={} "
                      "classic_beta={} legacy_l4s_prob_truncation={}",
                      cfg.enabled,
@@ -71,6 +73,7 @@ struct formatter<srsran::mark_config> {
                      cfg.min_rate_interval_us,
                      cfg.flow_idle_timeout_ms,
                      cfg.dl_udp_mark,
+                     cfg.dl_classic_tcp_mark,
                      cfg.ul_ack_rewrite,
                      cfg.ack_mss_bytes,
                      cfg.l4s_ce_portion_scale,

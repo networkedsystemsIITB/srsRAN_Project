@@ -14,7 +14,8 @@ cu_up:
     min_rate_interval_us: 1000          # Reuse the previous dequeue rate if feedback arrives sooner than this.
     flow_idle_timeout_ms: 1000          # Flow liveness timeout.
     dl_udp_mark: true                   # CE-mark DL UDP packets.
-    ul_ack_rewrite: true                # Rewrite AccECN feedback on UL TCP ACKs.
+    dl_classic_tcp_mark: true           # CE-mark DL classic (ECT(0)) TCP packets. If false, classic TCP is signalled through the UL AccECN rewrite, as in the original.
+    ul_ack_rewrite: true                # Rewrite AccECN feedback on UL TCP ACKs (L4S flows only when dl_classic_tcp_mark is true).
     ack_mss_bytes: 1336                 # Segment size assumed when synthesizing AccECN counters.
     l4s_ce_portion_scale: 0.1           # Scale of the CE portion reported to L4S flows.
     ce_pkt_offset: 5                    # Initial CE packet counter offset.

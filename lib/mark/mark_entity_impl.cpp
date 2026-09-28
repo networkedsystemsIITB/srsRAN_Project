@@ -158,7 +158,15 @@ void mark_entity_impl::handle_sdu(byte_buffer sdu, qos_flow_id_t qos_flow_id)
   } else if (pkt.is_tcp) {
     if (pkt.tcp_syn) {
       flow_table.map_flow(pkt.tuple, drb_id, now, cfg.ce_pkt_offset);
+    } else if (cfg.dl_classic_tcp_mark && pkt.ecn == ip::ecn_codepoint::ect_0) {
+      // Classic TCP: CE-mark the DL packet itself, so that any ECN-capable receiver (RFC 3168 or AccECN) echoes it.
+      if (do_mark) {
+        ip::set_ip_ecn(sdu, 0, ip::ecn_codepoint::ce);
+        logger.log_debug("CE-marked DL TCP packet. {} ecn={} p={:.3f}", drb_id, static_cast<unsigned>(pkt.ecn), p);
+      }
     } else {
+      // L4S TCP (and classic TCP if DL marking is disabled): leave the DL packet unmarked and count a virtual CE,
+      // reported through the UL AccECN rewrite.
       bool count_as_ce = do_mark || (pkt.ecn == ip::ecn_codepoint::ce);
       flow_table.update_dl_flow(pkt.tuple, drb_id, now, pkt.ecn, count_as_ce, pkt.l4_payload_len, cfg.ce_pkt_offset);
     }
@@ -204,9 +212,9 @@ void mark_entity_impl::handle_pdu(byte_buffer pdu, qos_flow_id_t qfi)
         if (acked_bytes >= ce_bytes) {
           ecn1_bytes = (acked_bytes - ce_bytes) % ip::DIVOPT;
         }
-        ecn0_bytes     = 1;
         should_rewrite = true;
-      } else if (pkt.ecn == ip::ecn_codepoint::ect_0 && f.pkts_with_ecn0 > 0 && f.pkts_with_ce > offset) {
+      } else if (!cfg.dl_classic_tcp_mark && pkt.ecn == ip::ecn_codepoint::ect_0 && f.pkts_with_ecn0 > 0 &&
+                 f.pkts_with_ce > offset) {
         double portion =
             static_cast<double>(f.bytes_with_ce) / static_cast<double>(f.bytes_with_ecn0 + f.bytes_with_ce);
         ce_pkt = static_cast<size_t>(total_pkt * portion) + offset;

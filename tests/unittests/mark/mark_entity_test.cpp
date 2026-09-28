@@ -404,3 +404,90 @@ TEST(mark_flow_table_test, ack_base_survives_sequence_number_wrap)
   auto older = table.get_and_update_ack(dl_tuple, 0xffffe000, t);
   EXPECT_EQ(older->ack_raw, 0xffffe000U - 1);
 }
+
+TEST_F(mark_entity_test, dl_classic_tcp_is_ce_marked)
+{
+  mark_impl->set_forced_classic_prob(1.0);
+  auto raw_pkt =
+      make_ipv4_tcp(ip::ecn_codepoint::ect_0, 0x0a000001, 0x0a000002, 8080, 5001, false, true, 1000, 1, 0, 0, 100);
+  mark->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(raw_pkt).value(), qos_flow_id_t::min);
+
+  ASSERT_EQ(tx_notifier.received_pdus.size(), 1u);
+  auto item = std::move(tx_notifier.received_pdus.front());
+  tx_notifier.received_pdus.pop();
+
+  // Classic TCP is CE-marked on the wire, with a valid IP checksum, and is not counted as a virtual CE.
+  auto parsed = ip::parse_packet(item.pdu);
+  ASSERT_TRUE(parsed.is_valid);
+  EXPECT_EQ(parsed.ecn, ip::ecn_codepoint::ce);
+  EXPECT_EQ(parsed.ip_check, ip::compute_ip_checksum(item.pdu, 0, parsed.ihl_bytes));
+  EXPECT_FALSE(mark_impl->get_flow_table().get_flow(parsed.tuple).has_value());
+}
+
+TEST_F(mark_entity_test, dl_classic_tcp_not_marked_when_p0)
+{
+  mark_impl->set_forced_classic_prob(0.0);
+  auto raw_pkt =
+      make_ipv4_tcp(ip::ecn_codepoint::ect_0, 0x0a000001, 0x0a000002, 8080, 5001, false, true, 1000, 1, 0, 0, 100);
+  mark->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(raw_pkt).value(), qos_flow_id_t::min);
+
+  ASSERT_EQ(tx_notifier.received_pdus.size(), 1u);
+  EXPECT_EQ(tx_notifier.received_pdus.front().pdu, raw_pkt);
+}
+
+TEST_F(mark_entity_test, ul_classic_ack_is_not_rewritten)
+{
+  uint32_t server_ip = 0x0a000001;
+  uint32_t ue_ip     = 0x0a000002;
+
+  // Classic flow marked on the DL. Its ACKs must be left untouched, so the sender is not signalled twice.
+  mark_impl->set_forced_classic_prob(1.0);
+  for (uint32_t seq : {1000U, 2336U}) {
+    auto dl_pkt =
+        make_ipv4_tcp(ip::ecn_codepoint::ect_0, server_ip, ue_ip, 8080, 5001, false, true, seq, 1, 0, 0, 1336);
+    mark->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(dl_pkt).value(), qos_flow_id_t::min);
+  }
+
+  auto ul_ack = make_ipv4_tcp(
+      ip::ecn_codepoint::ect_0, ue_ip, server_ip, 5001, 8080, false, true, 1, 3672, ip::TCP_OPT_ACCECN0, 11, 0);
+  mark->get_mark_rx_pdu_handler().handle_pdu(byte_buffer::create(ul_ack).value(), qos_flow_id_t::min);
+
+  ASSERT_EQ(rx_notifier.received_sdus.size(), 1u);
+  EXPECT_EQ(rx_notifier.received_sdus.front().sdu, ul_ack);
+}
+
+TEST_F(mark_entity_test, classic_tcp_uses_ack_rewrite_when_dl_marking_disabled)
+{
+  // With dl_classic_tcp_mark = false, classic TCP behaves as in the original L4Span: the DL packet is left unmarked,
+  // a virtual CE is counted, and it is reported through the UL AccECN rewrite.
+  mark_config legacy_cfg         = cfg;
+  legacy_cfg.dl_classic_tcp_mark = false;
+  mark_entity_creation_message legacy_msg{0, pdu_session_id_t::min, &rx_notifier, &tx_notifier, legacy_cfg, nof_ues};
+  std::unique_ptr<mark_entity> legacy = create_mark(legacy_msg);
+  auto*                        impl   = static_cast<mark_entity_impl*>(legacy.get());
+  impl->add_drb(drb_id_t::drb1, 12);
+  impl->add_mapping(qos_flow_id_t::min, drb_id_t::drb1);
+  impl->set_forced_classic_prob(1.0);
+
+  uint32_t server_ip = 0x0a000001;
+  uint32_t ue_ip     = 0x0a000002;
+  auto dl_pkt = make_ipv4_tcp(ip::ecn_codepoint::ect_0, server_ip, ue_ip, 8080, 5001, false, true, 1000, 1, 0, 0, 1336);
+  legacy->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(dl_pkt).value(), qos_flow_id_t::min);
+  impl->set_forced_classic_prob(0.0);
+  auto dl_pkt2 =
+      make_ipv4_tcp(ip::ecn_codepoint::ect_0, server_ip, ue_ip, 8080, 5001, false, true, 2336, 1, 0, 0, 1336);
+  legacy->get_mark_tx_sdu_handler().handle_sdu(byte_buffer::create(dl_pkt2).value(), qos_flow_id_t::min);
+
+  ASSERT_EQ(tx_notifier.received_pdus.size(), 2u);
+  EXPECT_EQ(tx_notifier.received_pdus.front().pdu, dl_pkt);
+  auto flow = impl->get_flow_table().get_flow(ip::parse_packet(byte_buffer::create(dl_pkt).value()).tuple);
+  ASSERT_TRUE(flow.has_value());
+  EXPECT_EQ(flow->pkts_with_ce, cfg.ce_pkt_offset + 1);
+
+  auto ul_ack = make_ipv4_tcp(
+      ip::ecn_codepoint::ect_0, ue_ip, server_ip, 5001, 8080, false, true, 1, 3672, ip::TCP_OPT_ACCECN0, 11, 0);
+  legacy->get_mark_rx_pdu_handler().handle_pdu(byte_buffer::create(ul_ack).value(), qos_flow_id_t::min);
+
+  ASSERT_EQ(rx_notifier.received_sdus.size(), 1u);
+  EXPECT_NE(rx_notifier.received_sdus.front().sdu, ul_ack);
+}
